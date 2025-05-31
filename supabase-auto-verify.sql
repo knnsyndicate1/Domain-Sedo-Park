@@ -1,24 +1,21 @@
--- Function to auto-verify knnsyndicate.com emails on signup
-CREATE OR REPLACE FUNCTION public.auto_verify_knnsyndicate_emails()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.email LIKE '%@knnsyndicate.com' THEN
-    -- Auto-verify the email address immediately
-    UPDATE auth.users
-    SET email_confirmed_at = NOW(),
-        confirmed_at = NOW()
-    WHERE id = NEW.id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Auto-verification for Supabase user emails
+-- This script automatically confirms email addresses when users register
 
--- Create trigger to auto-verify on new user creation
-DROP TRIGGER IF EXISTS auto_verify_knnsyndicate_emails_trigger ON auth.users;
-CREATE TRIGGER auto_verify_knnsyndicate_emails_trigger
-AFTER INSERT ON auth.users
-FOR EACH ROW
-EXECUTE FUNCTION public.auto_verify_knnsyndicate_emails();
+-- Set up a trigger to automatically confirm email addresses
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  update auth.users
+  set email_confirmed_at = now()
+  where id = new.id;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger the function every time a user is created
+create or replace trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
 
 -- For testing: You can confirm this with:
 -- SELECT email, email_confirmed_at FROM auth.users; 
