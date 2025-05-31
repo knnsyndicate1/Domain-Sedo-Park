@@ -2,6 +2,8 @@
 
 A full-stack application that automates domain registration through Namecheap API and facilitates Sedo listing with automatic nameserver configuration.
 
+## Redeployed with authentication fix
+
 ## Features
 
 - User authentication with Supabase (special handling for @knnsyndicate.com emails)
