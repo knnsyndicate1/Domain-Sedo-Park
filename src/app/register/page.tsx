@@ -38,22 +38,51 @@ export default function RegisterPage() {
   const onFinish = async (values: { email: string; password: string }) => {
     setLoading(true)
     try {
-      const { error } = await supabase.auth.signUp({
+      console.log("Attempting to sign up with:", values.email);
+      
+      const { data, error } = await supabase.auth.signUp({
         email: values.email,
         password: values.password,
       })
-      if (error) throw error
       
-      // Show navigation loader before redirecting
-      setNavigating(true)
+      console.log("Signup response:", { data, error });
       
-      // Small delay to show the loading animation
-      await new Promise(resolve => setTimeout(resolve, 800))
+      if (error) {
+        console.error("Signup error:", error);
+        throw error;
+      }
       
-      router.push('/login')
+      if (data?.user) {
+        console.log("User created successfully:", data.user.id);
+        
+        // Show navigation loader before redirecting
+        setNavigating(true);
+        
+        // Small delay to show the loading animation
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        router.push('/login');
+      } else {
+        console.warn("No error but user data is missing");
+        setLoading(false);
+        form.setFields([{ 
+          name: 'password', 
+          errors: ["Account created but got an unexpected response. Please try logging in."] 
+        }]);
+      }
     } catch (error: any) {
-      setLoading(false)
-      form.setFields([{ name: 'password', errors: [error.message] }])
+      console.error("Caught error during signup:", error);
+      setLoading(false);
+      
+      // More user-friendly error messages
+      let errorMessage = error.message;
+      if (errorMessage.includes("Database error saving new user")) {
+        errorMessage = "Unable to create account. Please check if email signups are enabled in Supabase.";
+      } else if (errorMessage.includes("Email signups are disabled")) {
+        errorMessage = "Email signups are currently disabled. Please contact administrator.";
+      }
+      
+      form.setFields([{ name: 'password', errors: [errorMessage] }]);
     }
   }
 
