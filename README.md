@@ -2,7 +2,7 @@
 
 A full-stack application that automates domain registration through Namecheap API and facilitates Sedo listing with automatic nameserver configuration.
 
-## Redeployed with authentication fix
+## Redeployed with authentication fix - Updated connection
 
 ## Features
 
