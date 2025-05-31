@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, Button, message, Form, Input, List, Tag, Alert, Empty, Typography, Avatar } from 'antd'
+import { Card, Button, message, Form, Input, List, Tag, Alert, Empty, Typography, Avatar, Spin } from 'antd'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Domain } from '@/lib/types'
@@ -12,7 +12,9 @@ import {
   LoadingOutlined, 
   CloudUploadOutlined,
   SearchOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  CloseCircleOutlined,
+  SyncOutlined
 } from '@ant-design/icons'
 
 const { Title, Text } = Typography
@@ -90,25 +92,25 @@ export default function DashboardPage() {
     setFetchingDomains(true)
     try {
       // Fetch all domains for the user
-      const { data, error } = await supabase
-        .from('domains')
-        .select('*')
+    const { data, error } = await supabase
+      .from('domains')
+      .select('*')
         .eq('status', 'registered')
-        .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false })
       
-      if (error) {
-        message.error('Failed to fetch domains')
-      } else {
+    if (error) {
+      message.error('Failed to fetch domains')
+    } else {
         // Filter out domains that are already listed on Sedo
         // Only show domains that still need action (need to be listed on Sedo)
         const domainsNeedingAction = (data as Domain[]).filter(domain => !domain.sedo_listed)
         setDomains(domainsNeedingAction)
-      }
+    }
     } catch (err) {
       console.error('Error fetching domains:', err)
       message.error('Failed to load your domains')
     } finally {
-      setFetchingDomains(false)
+    setFetchingDomains(false)
     }
   }
 
@@ -151,17 +153,91 @@ export default function DashboardPage() {
         setError(data.error)
         setPrice(null)
         setDomainAvailable(false)
+        
+        // Show clear error message to user about domain availability
+        if (data.error.includes('not available') || data.error.includes('already registered')) {
+          message.error({
+            content: (
+              <div className="flex items-center">
+                <CloseCircleOutlined className="text-red-500 mr-2" />
+                <div>
+                  <div className="font-bold">Domain Not Available</div>
+                  <div className="text-sm">This domain is already registered and not available.</div>
+                </div>
+              </div>
+            ),
+            duration: 5
+          });
+        } else if (data.error.includes('IP Address') || data.error.includes('whitelist')) {
+          message.error({
+            content: (
+              <div className="flex items-center">
+                <CloseCircleOutlined className="text-red-500 mr-2" />
+                <div>
+                  <div className="font-bold">API Authentication Error</div>
+                  <div className="text-sm">Your IP address is not whitelisted for the Namecheap API.</div>
+                </div>
+              </div>
+            ),
+            duration: 8
+          });
+        } else {
+          // Generic error
+          message.error({
+            content: (
+              <div className="flex items-center">
+                <CloseCircleOutlined className="text-red-500 mr-2" />
+                <div>
+                  <div className="font-bold">Error</div>
+                  <div className="text-sm">{data.error}</div>
+                </div>
+              </div>
+            ),
+            duration: 5
+          });
+        }
       } else {
         setPrice(data.price)
         setDomainAvailable(data.available)
         if (data.message) {
           setError(data.message)
         }
+        
+        // Show success message for available domains
+        if (data.available) {
+          message.success({
+            content: (
+              <div className="flex items-center">
+                <CheckCircleOutlined className="text-green-500 mr-2" />
+                <div>
+                  <div className="font-bold">Domain Available!</div>
+                  <div className="text-sm">
+                    {domain} is available for ${data.price}
+                  </div>
+                </div>
+              </div>
+            ),
+            duration: 5
+          });
+        }
       }
     } catch (err: any) {
       setError('Failed to check price')
       setPrice(null)
       setDomainAvailable(null)
+      
+      message.error({
+        content: (
+          <div className="flex items-center">
+            <CloseCircleOutlined className="text-red-500 mr-2" />
+            <div>
+              <div className="font-bold">Connection Error</div>
+              <div className="text-sm">Unable to connect to domain registration service.</div>
+            </div>
+          </div>
+        ),
+        duration: 5
+      });
     } finally {
       setPriceLoading(false)
     }
@@ -170,20 +246,44 @@ export default function DashboardPage() {
   // Show registration modal
   const showRegistrationForm = () => {
     const domain = form.getFieldValue('domain')
+    
+    // Check for internet connection first
+    if (!navigator.onLine) {
+      message.error({
+        content: (
+          <div className="flex items-center">
+            <CloseCircleOutlined className="text-red-500 mr-2" />
+            <div>
+              <div className="font-bold">Network Error</div>
+              <div className="text-sm">Please check your internet connection and try again.</div>
+            </div>
+          </div>
+        ),
+        duration: 5,
+      });
+      return;
+    }
+    
     setDomainToRegister(domain)
     
+    console.log('Starting domain registration for:', domain)
     // Directly register with fixed company details
-    onRegister();
+    onRegister()
   }
 
   // Register domain using Namecheap API and update Supabase
   const onRegister = async () => {
-    if (!domainToRegister) return
+    if (!domainToRegister) {
+      console.error('No domain to register');
+      return;
+    }
     
-    setRegistering(true)
-    setError(null)
+    console.log(`Registering domain: ${domainToRegister}`);
+    setRegistering(true);
+    setError(null);
     try {
       // Insert as pending first
+      console.log('Inserting domain into database with pending status...');
       const { data: inserted, error: insertError } = await supabase.from('domains').insert([
         {
           user_id: userId,
@@ -191,61 +291,193 @@ export default function DashboardPage() {
           status: 'pending',
           sedo_listed: false,
         },
-      ]).select()
-      if (insertError) throw insertError
-      const newDomain = (inserted as Domain[])[0]
-      setDomains([newDomain, ...domains])
+      ]).select();
+      
+      if (insertError) {
+        console.error('Error inserting domain:', insertError);
+        throw insertError;
+      }
+      
+      console.log('Domain inserted successfully:', inserted);
+      const newDomain = (inserted as Domain[])[0];
+      setDomains([newDomain, ...domains]);
 
       // Call Namecheap registration API with fixed company details
+      console.log('Calling Namecheap registration API...');
+      try {
       const res = await fetch('/api/namecheap/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain: domainToRegister }),
-      })
-      const regData = await res.json()
-      let newStatus = regData.status
-      
-      // Update status and nameservers in Supabase
-      await supabase.from('domains').update({ 
-        status: newStatus,
-        nameservers: regData.nameservers || ''
-      }).eq('id', newDomain.id)
-      
-      // Update domains in state
-      setDomains(prevDomains => prevDomains.map(d => 
-        d.id === newDomain.id 
-          ? { 
-              ...d, 
-              status: newStatus,
-              nameservers: regData.nameservers || '' 
-            } 
-          : d
-      ))
-      
+        });
+        
+        console.log('Registration API response status:', res.status);
+        
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('API Error Response:', errorText);
+          throw new Error(`API returned status ${res.status}: ${errorText}`);
+        }
+        
+        const regData = await res.json();
+        console.log('Registration data:', regData);
+        
+        let newStatus = regData.status;
+        
+        // Update status and nameservers in Supabase
+        console.log('Updating domain status in database...');
+        await supabase.from('domains').update({ 
+          status: newStatus,
+          nameservers: regData.nameservers || ''
+        }).eq('id', newDomain.id);
+        
+        // Update domains in state
+        setDomains(prevDomains => prevDomains.map(d => 
+          d.id === newDomain.id 
+            ? { 
+                ...d, 
+                status: newStatus,
+                nameservers: regData.nameservers || '' 
+              } 
+            : d
+        ));
+        
       if (regData.status === 'registered') {
-        message.success('Domain registered successfully!')
-        fetchDomains() // Refresh the domains list
+          console.log('Domain registration successful');
+          message.success({
+            content: (
+              <div className="flex flex-col">
+                <div className="flex items-center mb-2">
+                  <CheckCircleOutlined className="text-green-500 mr-2" />
+                  <span>Domain <strong>{domainToRegister}</strong> registered successfully!</span>
+                </div>
+                <div className="mt-3 flex justify-center">
+                  <Button 
+                    type="primary"
+                    onClick={() => {
+                      message.destroy(); // Close this message
+                      handleAutoListOnSedo(domainToRegister, newDomain.id);
+                    }}
+                    icon={<CloudUploadOutlined />}
+                    size="large"
+                    className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600"
+                    style={{ fontWeight: 600, padding: '0 20px', height: '40px' }}
+                  >
+                    Auto-Sedo Listing
+                  </Button>
+                </div>
+              </div>
+            ),
+            duration: 0, // Don't auto-close
+            key: `auto-list-${newDomain.id}`,
+          });
+          
+          fetchDomains(); // Refresh the domains list
       } else if (regData.status === 'failed') {
-        setError(regData.error || 'Registration failed.')
-        message.error(regData.error || 'Registration failed.')
+          // Display detailed error message
+          console.error('Registration failed:', regData.error);
+          const errorMessage = regData.error || 'Registration failed.';
+          setError(errorMessage);
+          
+          // Show error in a more prominent way
+          message.error({
+            content: (
+              <div className="flex items-center">
+                <CloseCircleOutlined className="text-red-500 mr-2" />
+                <div>
+                  <div className="font-bold">Registration Failed</div>
+                  <div className="text-sm">{errorMessage}</div>
+                </div>
+              </div>
+            ),
+            duration: 8, // Show longer so user can read it
+          });
+          
+          // Remove the domain from the database if it failed to register
+          console.log('Removing failed domain from database...');
+          await supabase.from('domains').delete().eq('id', newDomain.id);
+          
+          // Update the UI state to remove the failed domain
+          setDomains(prevDomains => prevDomains.filter(d => d.id !== newDomain.id));
       } else {
-        message.info('Registration submitted, check status later.')
+          console.log('Registration status:', regData.status);
+          message.info({
+            content: 'Registration submitted, check status later.',
+            icon: <LoadingOutlined />,
+          });
+        }
+      } catch (fetchError: any) {
+        console.error('Fetch error during registration:', fetchError);
+        
+        // Show error with retry button
+        message.error({
+          content: (
+            <div className="flex flex-col">
+              <div className="flex items-center">
+                <CloseCircleOutlined className="text-red-500 mr-2" />
+                <div>
+                  <div className="font-bold">Connection Error</div>
+                  <div className="text-sm">Failed to connect to registration service</div>
+                </div>
+              </div>
+              <Button
+                type="link"
+                className="mt-2 p-0 h-auto text-blue-600 hover:text-blue-800"
+                onClick={() => {
+                  message.loading({
+                    content: 'Retrying registration...',
+                    duration: 1,
+                  });
+                  setTimeout(() => onRegister(), 1500);
+                }}
+              >
+                <SyncOutlined /> Retry Registration
+              </Button>
+            </div>
+          ),
+          duration: 0,  // Keep showing until user takes action
+          key: `reg-error-${domainToRegister}`,
+        });
+        
+        // Do NOT remove the domain from the database yet to allow for retry
+        // Just update its status to indicate error
+        await supabase.from('domains').update({ 
+          status: 'error',
+          nameservers: 'Registration error: connection failed'
+        }).eq('id', newDomain.id);
+        
+        // Don't throw error so form remains in editable state for retry
+        return;
       }
-      form.resetFields()
-      setPrice(null)
-      setDomainAvailable(null)
-      setShowPrice(false)
+      
+      form.resetFields();
+      setPrice(null);
+      setDomainAvailable(null);
+      setShowPrice(false);
     } catch (err: any) {
-      setError(err.message)
+      console.error('Registration error:', err);
+      setError(err.message);
+      message.error({
+        content: (
+          <div className="flex items-center">
+            <CloseCircleOutlined className="text-red-500 mr-2" />
+            <div>
+              <div className="font-bold">Registration Error</div>
+              <div className="text-sm">{err.message}</div>
+            </div>
+          </div>
+        ),
+        duration: 5,
+      });
     } finally {
-      setRegistering(false)
+      setRegistering(false);
     }
-  }
+  };
 
   // Auto list on Sedo and mark as listed
   const handleAutoListOnSedo = async (domain: string, domainId: string) => {
-    setSelectedDomain(domain)
-    setAutoListingInProgress(true)
+    setSelectedDomain(domain);
+    setAutoListingInProgress(true);
     
     try {
       // Show a more elegant loading message with the domain
@@ -260,16 +492,16 @@ export default function DashboardPage() {
         ),
         key: domain,
         duration: 0
-      })
+      });
       
       // Call the Sedo API
       const res = await fetch('/api/sedo/list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain }),
-      })
+      });
       
-      const data = await res.json()
+      const data = await res.json();
       
       if (data.success) {
         // Update the database
@@ -279,11 +511,51 @@ export default function DashboardPage() {
             sedo_listed: true,
             nameservers: data.nameservers || 'ns1.sedoparking.com, ns2.sedoparking.com'
           })
-          .eq('id', domainId)
+          .eq('id', domainId);
           
         if (error) {
-          message.error({ content: 'Failed to update database', key: domain })
+          message.error({ content: 'Failed to update database', key: domain });
         } else {
+          // Store domain in localStorage for simulating listed domains in searches
+          try {
+            if (typeof window !== 'undefined') {
+              // Add to localStorage for search simulation
+              const domainData = {
+                domain: domain,
+                price: 0, // Price set to 0 as not for sale
+                currency: 1, // USD
+                forsale: 0, // Not for sale (set to 0)
+                fixedprice: 0, // Not fixed price
+                sedo_listed: true
+              };
+              
+              // Get existing domains or initialize empty array
+              const existingDomainsString = localStorage.getItem('listed_domains');
+              let existingDomains = [];
+              
+              if (existingDomainsString) {
+                try {
+                  existingDomains = JSON.parse(existingDomainsString);
+                  if (!Array.isArray(existingDomains)) {
+                    existingDomains = [];
+                  }
+                } catch (e) {
+                  console.error('Error parsing localStorage domains:', e);
+                  existingDomains = [];
+                }
+              }
+              
+              // Add new domain if it doesn't exist already
+              if (!existingDomains.some(d => d.domain === domain)) {
+                existingDomains.push(domainData);
+                localStorage.setItem('listed_domains', JSON.stringify(existingDomains));
+                console.log(`Added domain ${domain} to localStorage for search simulation`);
+              }
+            }
+          } catch (e) {
+            console.error('Error saving domain to localStorage:', e);
+          }
+          
           message.success({ 
             content: (
               <div className="flex items-center">
@@ -292,45 +564,56 @@ export default function DashboardPage() {
               </div>
             ), 
             key: domain 
-          })
+          });
           
-          // Show additional notification explaining the domain is moved to search
+          // Update the domains list - filtering out the one that was just listed
+          setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
+          
+          // Show clickable notification to search for the domain
           setTimeout(() => {
             message.info({
               content: (
                 <div className="flex flex-col">
                   <div className="flex items-center">
-                    <InfoCircleOutlined className="text-blue-500 mr-2" />
+                    <SearchOutlined className="text-blue-500 mr-2" />
                     <span>Domain moved to Search Listed Domains</span>
                   </div>
-                  <span className="text-sm text-gray-500 mt-1">
-                    This domain is now only available in the search page
-                  </span>
+                  <Button 
+                    type="link" 
+                    className="p-0 h-auto text-blue-600 hover:text-blue-800"
+                    onClick={() => goToSearchDomains(domain)}
+                  >
+                    Click here to search for {domain}
+                  </Button>
                 </div>
               ),
-              duration: 5
+              duration: 8
             });
           }, 1000);
-          
-          // Update the domains list - filtering out the one that was just listed
-          setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
         }
       } else {
-        message.error({ content: `Failed to list on Sedo: ${data.error}`, key: domain })
+        message.error({ content: `Failed to list on Sedo: ${data.error}`, key: domain });
       }
     } catch (error) {
-      message.error({ content: 'Error connecting to Sedo', key: domain })
+      message.error({ content: 'Error connecting to Sedo', key: domain });
     } finally {
-      setAutoListingInProgress(false)
+      setAutoListingInProgress(false);
     }
-  }
+  };
 
   // Add search domains navigation function
-  const goToSearchDomains = async () => {
-    setNavigating(true)
+  const goToSearchDomains = async (domain?: string) => {
+    setNavigating(true);
     // Add small delay to show the loading animation
-    await new Promise(resolve => setTimeout(resolve, 400))
-    router.push('/search-domain')
+    await new Promise(resolve => setTimeout(resolve, 400));
+    
+    if (domain) {
+      // Navigate to search page with the domain parameter
+      router.push(`/search-domain?domain=${encodeURIComponent(domain)}`);
+    } else {
+      // Navigate to search page without parameters
+      router.push('/search-domain');
+    }
   }
 
   if (loading) {
@@ -365,7 +648,15 @@ export default function DashboardPage() {
               <Title level={3} className="!mb-0 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-purple-500 to-pink-500 font-bold tracking-tight drop-shadow-md">Domain Dashboard</Title>
               <Text className="text-gray-600">Register domains and list them on Sedo</Text>
             </div>
-            <div>
+            <div className="flex gap-3">
+              <Button 
+                type="primary" 
+                icon={<SearchOutlined />}
+                onClick={() => goToSearchDomains()}
+                className="bg-gradient-to-r from-blue-500 to-purple-500 border-0 shadow-md hover:from-blue-600 hover:to-purple-600"
+              >
+                Search Listed Domains
+              </Button>
               <Button 
                 type="primary" 
                 icon={<LogoutOutlined />}
@@ -375,7 +666,7 @@ export default function DashboardPage() {
                 Logout
               </Button>
             </div>
-          </div>
+        </div>
 
           {/* Domain registration form */}
           <Card className="rounded-2xl shadow-xl border-0 bg-white/70 backdrop-blur-md mb-8">
@@ -383,25 +674,25 @@ export default function DashboardPage() {
               <PlusOutlined className="mr-2 text-blue-500" />
               Register New Domain
             </Title>
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={showRegistrationForm}
-              initialValues={{ domain: '' }}
-            >
-              <Form.Item
-                name="domain"
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={showRegistrationForm}
+            initialValues={{ domain: '' }}
+          >
+            <Form.Item
+              name="domain"
                 label={<span className="text-gray-700 font-medium">Domain Name</span>}
-                rules={[
-                  { required: true, message: 'Please enter a domain name' },
-                  {
-                    validator: (_, value) =>
-                      !value || isValidTLD(value)
-                        ? Promise.resolve()
-                        : Promise.reject('Only .shop or .click domains allowed'),
-                  },
-                ]}
-              >
+              rules={[
+                { required: true, message: 'Please enter a domain name' },
+                {
+                  validator: (_, value) =>
+                    !value || isValidTLD(value)
+                      ? Promise.resolve()
+                      : Promise.reject('Only .shop or .click domains allowed'),
+                },
+              ]}
+            >
                 <Input
                   placeholder="e.g. mybrand.shop"
                   size="large"
@@ -409,36 +700,36 @@ export default function DashboardPage() {
                   suffix={priceLoading ? <LoadingOutlined style={{ color: '#6366f1' }} /> : <SearchOutlined style={{ color: '#6366f1' }} />}
                   style={{ fontWeight: 500 }}
                 />
-              </Form.Item>
+            </Form.Item>
               <div className="flex gap-3">
-                <Button
-                  type="default"
-                  onClick={() => {
-                    const domain = form.getFieldValue('domain')
-                    if (isValidTLD(domain)) checkPrice(domain)
-                    else setError('Only .shop or .click domains allowed')
-                  }}
-                  loading={priceLoading}
+              <Button
+                type="default"
+                onClick={() => {
+                  const domain = form.getFieldValue('domain')
+                  if (isValidTLD(domain)) checkPrice(domain)
+                  else setError('Only .shop or .click domains allowed')
+                }}
+                loading={priceLoading}
                   className="bg-gradient-to-r from-blue-400 to-purple-400 border-0 shadow-md hover:from-blue-500 hover:to-purple-500 text-white"
                   size="large"
                   style={{ fontWeight: 500 }}
                   icon={<SearchOutlined />}
-                >
-                  Check Price
-                </Button>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  disabled={!price || price >= 2 || !domainAvailable}
+              >
+                Check Price
+              </Button>
+              <Button
+                type="primary"
+                htmlType="submit"
+                disabled={!price || price >= 2 || !domainAvailable}
                   loading={registering}
                   className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600"
                   style={{ fontWeight: 600, letterSpacing: 1 }}
                   size="large"
                   icon={<PlusOutlined />}
-                >
-                  Register
-                </Button>
-              </div>
+              >
+                Register
+              </Button>
+            </div>
               
               {/* Fixed height result container to prevent layout shifts */}
               <div className="h-20 mt-4">
@@ -450,31 +741,75 @@ export default function DashboardPage() {
                 )}
                 
                 {!priceLoading && showPrice && (
-                  <div className="animate-fadeIn">
-                    {price !== null && domainAvailable && (
-                      <div className="bg-green-50 text-green-700 px-4 py-3 rounded-xl border border-green-100 flex items-center">
-                        <CheckCircleOutlined className="text-green-500 mr-2" />
-                        <span className="font-medium">Price: ${price.toFixed(2)} - Domain is available</span>
-                      </div>
-                    )}
-                    {(domainAvailable === false || (price !== null && price >= 2) || error) && (
-                      <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl border border-red-100 flex items-center">
-                        <span className="flex-shrink-0 w-6 h-6 bg-red-100 rounded-full flex items-center justify-center mr-2">
-                          <span className="text-red-500 text-xs font-bold">×</span>
-                        </span>
-                        <span className="font-medium">
-                          {domainAvailable === false && "This domain is not available for registration."}
-                          {price !== null && price >= 2 && "Domain price exceeds $2 limit."}
-                          {error && domainAvailable !== false && error}
-                        </span>
-                      </div>
-                    )}
+                  <div className="mt-4">
+                    <div className="text-center mb-4">
+                      {priceLoading ? (
+                        <Spin size="large" />
+                      ) : domainAvailable === true ? (
+                        <div className="rounded-md bg-green-50 p-4">
+                          <div className="flex">
+                            <div className="flex-shrink-0">
+                              <CheckCircleOutlined className="h-5 w-5 text-green-400" />
+                            </div>
+                            <div className="ml-3">
+                              <h3 className="text-sm font-medium text-green-800">
+                                Domain Available
+                              </h3>
+                              <div className="mt-2 text-sm text-green-700">
+                                <p>{form.getFieldValue('domain')} is available for ${price}</p>
+                              </div>
+                              <div className="mt-4">
+                                <Button
+                                  type="primary"
+                                  size="large"
+                                  className="bg-green-500 hover:bg-green-600 w-full"
+                                  onClick={() => showRegistrationForm()}
+                                  disabled={registering}
+                                  loading={registering}
+                                >
+                                  {registering ? 'Registering...' : 'Register Now'}
+                                </Button>
+                                {error && error.includes('network') && (
+                                  <div className="mt-2 text-sm text-amber-500">
+                                    <div className="flex items-center">
+                                      <InfoCircleOutlined className="mr-1" />
+                                      <span>Network issues detected. Check your connection status.</span>
+                                    </div>
+                                    <div className="text-xs mt-1">
+                                      Connection Status: {navigator.onLine ? 
+                                        <span className="text-green-500">Online</span> : 
+                                        <span className="text-red-500">Offline</span>}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-md bg-red-50 p-4">
+                          <div className="flex">
+                            <div className="flex-shrink-0">
+                              <CloseCircleOutlined className="h-5 w-5 text-red-400" aria-hidden="true" />
+                            </div>
+                            <div className="ml-3">
+                              <h3 className="text-sm font-medium text-red-800">
+                                Domain Not Available
+                              </h3>
+                              <div className="mt-2 text-sm text-red-700">
+                                <p>{error || 'This domain is already registered.'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-            </Form>
-          </Card>
-          
+          </Form>
+        </Card>
+
           {domains.length === 0 && !fetchingDomains && (
             <Card className="rounded-2xl shadow-xl border-0 bg-white/80 backdrop-blur-md animate-fadeIn mb-8">
               <div className="bg-blue-50 text-blue-700 px-6 py-5 rounded-xl border border-blue-100">
@@ -486,7 +821,7 @@ export default function DashboardPage() {
                   <Button 
                     type="primary" 
                     icon={<SearchOutlined />}
-                    onClick={goToSearchDomains}
+                    onClick={() => goToSearchDomains()}
                     className="bg-gradient-to-r from-blue-500 to-purple-500 border-0 shadow-md hover:from-blue-600 hover:to-purple-600"
                   >
                     Search Listed Domains
@@ -503,68 +838,69 @@ export default function DashboardPage() {
                 The following domains need to be listed on Sedo. Once listed, they will be removed from this dashboard
                 and can be found using the "Search Listed Domains" button.
               </Text>
-              {fetchingDomains ? (
+          {fetchingDomains ? (
                 <div className="py-10 flex flex-col items-center">
                   <ModernLoader />
                   <Text className="mt-4 text-gray-600">Loading your domains...</Text>
                 </div>
-              ) : (
-                <List
-                  dataSource={domains}
-                  renderItem={item => (
-                    <List.Item className="p-4 border border-gray-100 rounded-xl mb-3 bg-white/90 hover:shadow-lg transition-shadow">
-                      <div className="flex flex-col w-full">
-                        <div className="flex items-center w-full">
-                          <Avatar size={48} className="bg-gradient-to-tr from-blue-400 via-purple-400 to-pink-400 text-white font-bold flex-shrink-0">
-                            {item.domain.charAt(0).toUpperCase()}
-                          </Avatar>
-                          <div className="ml-4 flex-grow">
-                            <Text strong className="text-lg text-gray-800 block font-semibold">{item.domain}</Text>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <Tag color="success" className="rounded-full px-3 border-0 bg-green-100 text-green-700">
-                                registered
-                              </Tag>
-                              {item.sedo_listed && (
-                                <Tag color="blue" className="rounded-full px-3 border-0 bg-blue-100 text-blue-700">
-                                  Sedo Listed
-                                </Tag>
-                              )}
-                              <Tag color="default" className="rounded-full px-3 border-0 bg-gray-100 text-gray-700">
-                                {/* Display registration date + 1 year for expiration */}
-                                {item.created_at && new Date(new Date(item.created_at).setFullYear(new Date(item.created_at).getFullYear() + 1)).toLocaleDateString()}
-                              </Tag>
-                            </div>
-                          </div>
-                          {item.status === 'registered' && !item.sedo_listed && (
-                            <Button
-                              type="primary"
-                              className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600 ml-auto"
-                              onClick={() => handleAutoListOnSedo(item.domain, item.id)}
-                              icon={<CloudUploadOutlined />}
-                              loading={autoListingInProgress && selectedDomain === item.domain}
-                              style={{ fontWeight: 600 }}
-                            >
-                              Auto-List on Sedo
-                            </Button>
+          ) : (
+            <List
+              dataSource={domains}
+              renderItem={item => (
+                <List.Item className="p-4 border border-gray-100 rounded-xl mb-3 bg-white/90 hover:shadow-lg transition-shadow">
+                  <div className="flex flex-col w-full">
+                    <div className="flex items-center w-full">
+                      <Avatar size={48} className="bg-gradient-to-tr from-blue-400 via-purple-400 to-pink-400 text-white font-bold flex-shrink-0">
+                        {item.domain.charAt(0).toUpperCase()}
+                      </Avatar>
+                      <div className="ml-4 flex-grow">
+                        <Text strong className="text-lg text-gray-800 block font-semibold">{item.domain}</Text>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Tag color="success" className="rounded-full px-3 border-0 bg-green-100 text-green-700">
+                            registered
+                          </Tag>
+                          {item.sedo_listed && (
+                            <Tag color="blue" className="rounded-full px-3 border-0 bg-blue-100 text-blue-700">
+                              Sedo Listed
+                            </Tag>
                           )}
+                          <Tag color="default" className="rounded-full px-3 border-0 bg-gray-100 text-gray-700">
+                            {/* Display registration date + 1 year for expiration */}
+                            {item.created_at && new Date(new Date(item.created_at).setFullYear(new Date(item.created_at).getFullYear() + 1)).toLocaleDateString()}
+                          </Tag>
                         </div>
-                        {item.sedo_listed && (
-                          <div className="mt-3 w-full flex justify-end">
-                            <div className="text-green-600 font-medium">Successfully listed on Sedo</div>
-                          </div>
-                        )}
-                        {item.nameservers && (
-                          <div className="mt-1 text-sm text-gray-500">
-                            Nameservers: {item.nameservers}
-                          </div>
-                        )}
+                    </div>
+                      {item.status === 'registered' && !item.sedo_listed && (
+                        <Button
+                          type="primary"
+                          className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600 ml-auto"
+                          onClick={() => handleAutoListOnSedo(item.domain, item.id)}
+                          icon={<CloudUploadOutlined />}
+                          loading={autoListingInProgress && selectedDomain === item.domain}
+                          size="large"
+                          style={{ fontWeight: 600, padding: '0 18px', height: '40px' }}
+                        >
+                          Auto-Sedo Listing
+                        </Button>
+                      )}
+                    </div>
+                    {item.sedo_listed && (
+                      <div className="mt-3 w-full flex justify-end">
+                        <div className="text-green-600 font-medium">Successfully listed on Sedo</div>
+                  </div>
+                    )}
+                    {item.nameservers && (
+                      <div className="mt-1 text-sm text-gray-500">
+                        Nameservers: {item.nameservers}
                       </div>
-                    </List.Item>
-                  )}
-                  className="w-full"
-                />
+                    )}
+                  </div>
+                </List.Item>
               )}
-            </Card>
+              className="w-full"
+            />
+          )}
+        </Card>
           )}
         </div>
       </div>

@@ -1,8 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { RegistrationResponse } from '@/lib/types'
 
+// Helper function for fetch with retry
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3) {
+  let retryCount = 0;
+  let lastError: Error | null = null;
+
+  // Add default timeout if not specified
+  if (!options.signal) {
+    options.signal = AbortSignal.timeout(45000); // 45 seconds timeout
+  }
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`Attempt ${retryCount + 1} of ${maxRetries}`);
+      return await fetch(url, options);
+    } catch (err: any) {
+      lastError = err;
+      console.error(`Fetch attempt ${retryCount + 1} failed:`, err);
+      
+      // Don't retry on user cancel
+      if (err.name === 'AbortError' && err.message?.includes('user')) {
+        throw err;
+      }
+      
+      retryCount++;
+      if (retryCount >= maxRetries) {
+        break;
+      }
+      
+      // Exponential backoff with jitter
+      const delay = Math.min(1000 * (2 ** retryCount) + Math.random() * 1000, 10000);
+      console.log(`Retrying in ${Math.round(delay / 1000)} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError || new Error('Failed after multiple retry attempts');
+}
+
 export async function POST(req: NextRequest) {
   const { domain } = await req.json()
+
+  // Input validation
+  if (!domain || typeof domain !== 'string') {
+    return NextResponse.json({ 
+      status: 'failed', 
+      error: 'Invalid domain input' 
+    } as RegistrationResponse, { status: 400 })
+  }
+
+  // Validate domain format
+  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$/
+  if (!domainRegex.test(domain)) {
+    return NextResponse.json({ 
+      status: 'failed', 
+      error: 'Invalid domain format' 
+    } as RegistrationResponse, { status: 400 })
+  }
 
   const apiUser = process.env.NAMECHEAP_USERNAME
   const apiKey = process.env.NAMECHEAP_API_KEY
@@ -25,6 +80,69 @@ export async function POST(req: NextRequest) {
       status: 'failed', 
       error: 'Namecheap API credentials missing' 
     } as RegistrationResponse, { status: 500 })
+  }
+
+  // First check if domain is available before attempting to register
+  try {
+    console.log('Checking domain availability before registration...')
+    const checkUrl = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=${clientIp}&Command=namecheap.domains.check&DomainList=${domain}`
+    
+    const checkRes = await fetch(checkUrl)
+    const checkXml = await checkRes.text()
+    
+    console.log(`Availability check response: ${checkRes.status}`)
+    console.log(`Availability check preview: ${checkXml.substring(0, 200)}...`)
+    
+    // Log the full response for debugging purposes
+    console.log('Full availability check response:')
+    console.log(checkXml)
+    
+    // Improved availability check
+    let isAvailable = false
+    
+    // First look for the domain check result with exact domain matching
+    const domainCheck = new RegExp(`<DomainCheckResult[^>]*Domain="${domain}"[^>]*Available="(true|false)"`, 'i')
+    const domainMatch = checkXml.match(domainCheck)
+    
+    if (domainMatch) {
+      isAvailable = domainMatch[1].toLowerCase() === 'true'
+      console.log(`Domain availability explicitly found in response: ${isAvailable ? 'Available' : 'Not Available'}`)
+    } else if (checkXml.includes('Available="true"')) {
+      // Fallback check
+      isAvailable = true
+      console.log('Domain availability found via general check: Available')
+    }
+    
+    // Check for errors in the availability response
+    if ((checkXml.includes('<Error') && !checkXml.includes('<Errors />')) || 
+        (checkXml.includes('Status="ERROR"') && checkXml.includes('<Errors>'))) {
+      const errorMatch = checkXml.match(/<Error[^>]*>(.*?)<\/Error>/i) || 
+                       checkXml.match(/<Description>(.*?)<\/Description>/i)
+      
+      const errorMsg = errorMatch ? errorMatch[1] : 'Unknown error checking domain availability'
+      console.error(`Domain availability check error: ${errorMsg}`)
+      
+      if (errorMsg.toLowerCase().includes('ip') || errorMsg.toLowerCase().includes('whitelist')) {
+        return NextResponse.json({ 
+          status: 'failed', 
+          error: `IP Address error: ${errorMsg}`
+        } as RegistrationResponse, { status: 401 })
+      }
+      
+      // Continue with registration attempt if the error is not IP related
+      console.log('Continuing with registration despite availability check error')
+    } else if (!isAvailable) {
+      return NextResponse.json({ 
+        status: 'failed', 
+        error: 'Domain is not available for registration'
+      } as RegistrationResponse, { status: 400 })
+    } else {
+      console.log('Domain is available, proceeding with registration')
+    }
+  } catch (err) {
+    console.error('Error checking domain availability:', err)
+    // Continue with registration attempt even if availability check fails
+    console.log('Continuing with registration despite availability check error')
   }
 
   // Set custom nameservers for Sedo parking
@@ -90,24 +208,63 @@ export async function POST(req: NextRequest) {
 
   try {
     console.log(`Sending registration request...`)
-    const res = await fetch(registerUrl)
-    const xml = await res.text()
+    const res = await fetchWithRetry(registerUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/xml'
+      },
+      cache: 'no-store'
+    }, 3); // Try up to 3 times
+    
+    console.log(`API Response received, status: ${res.status}`);
+    
+    if (!res.ok) {
+      console.error(`API Response not OK: ${res.status}`);
+      return NextResponse.json({ 
+        status: 'failed', 
+        error: `Namecheap API returned status ${res.status}` 
+      } as RegistrationResponse, { status: res.status });
+    }
+    
+    const xml = await res.text();
     
     // Log response for debugging
     console.log(`API Response Status: ${res.status}`)
     console.log(`API Response Preview: ${xml.substring(0, 500)}...`)
     
-    // Check for IP address issues in the error message
-    if (xml.includes('<Error Number=') || (xml.includes('Status="ERROR"') && xml.includes('<Errors>'))) {
-      const errorMatch = xml.match(/<Error[^>]*>(.*?)<\/Error>/i)
-      const errorMsg = errorMatch ? errorMatch[1] : 'Unknown error from Namecheap API'
+    // Improved error detection - fixed to ignore empty error tags
+    if ((xml.includes('<Error') && !xml.includes('<Errors />')) || 
+        (xml.includes('Status="ERROR"') && xml.includes('<Errors>'))) {
+      // Extract detailed error information with better pattern matching
+      const errorMatch = xml.match(/<Error[^>]*>(.*?)<\/Error>/i) ||
+                      xml.match(/<Description>(.*?)<\/Description>/i) ||
+                      xml.match(/<Message>(.*?)<\/Message>/i)
+      
+      const errorMsg = errorMatch ? errorMatch[1].trim() : 'Unknown error from Namecheap API'
       console.error(`Namecheap API Error: ${errorMsg}`)
       
-      if (errorMsg.includes('IP') || errorMsg.includes('whitelist')) {
+      // Handle IP whitelisting issues specifically
+      if (errorMsg.toLowerCase().includes('ip') || errorMsg.toLowerCase().includes('whitelist')) {
         return NextResponse.json({ 
           status: 'failed', 
-          error: `IP Address error: ${errorMsg}`
+          error: `IP Address error: ${errorMsg} (IP: ${clientIp})`
         } as RegistrationResponse, { status: 401 })
+      }
+      
+      // Handle account balance issues
+      if (errorMsg.toLowerCase().includes('balance') || errorMsg.toLowerCase().includes('funds')) {
+        return NextResponse.json({ 
+          status: 'failed', 
+          error: `Account balance error: ${errorMsg}`
+        } as RegistrationResponse, { status: 402 })
+      }
+      
+      // Handle domain-specific issues
+      if (errorMsg.toLowerCase().includes('domain')) {
+        return NextResponse.json({ 
+          status: 'failed', 
+          error: errorMsg
+        } as RegistrationResponse, { status: 400 })
       }
       
       return NextResponse.json({ 
@@ -116,8 +273,12 @@ export async function POST(req: NextRequest) {
       } as RegistrationResponse, { status: 400 })
     }
     
-    // Better error handling and response parsing
-    if (xml.includes('<DomainCreateResult') && xml.includes('Registered="true"')) {
+    // Enhanced success detection with multiple patterns
+    if (
+      (xml.includes('<DomainCreateResult') && xml.includes('Registered="true"')) ||
+      (xml.includes('<RequestedCommand>namecheap.domains.create</RequestedCommand>') && xml.includes('Status="OK"')) ||
+      (xml.includes('Domain registration successful'))
+    ) {
       console.log('Domain registered successfully!')
       return NextResponse.json({ 
         status: 'registered', 
@@ -125,8 +286,8 @@ export async function POST(req: NextRequest) {
         domain: domain,
         nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
       } as RegistrationResponse)
-    } else if (xml.includes('<RequestedCommand>namecheap.domains.create</RequestedCommand>') && xml.includes('Status="OK"')) {
-      // Sometimes Namecheap returns OK but domain is still processing
+    } else if (xml.includes('Status="OK"')) {
+      // Sometimes Namecheap returns OK but without explicit confirmation
       console.log('Domain registration submitted successfully!')
       return NextResponse.json({ 
         status: 'registered', 
@@ -134,15 +295,19 @@ export async function POST(req: NextRequest) {
         domain: domain,
         nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
       } as RegistrationResponse)
-    } else if (xml.includes('error')) {
-      // Extract error message from XML - fixed regex
-      const errorMatch = xml.match(/<Error[^>]*>(.*?)<\/Error>/i)
-      const errorMsg = errorMatch ? errorMatch[1] : 'Registration failed.'
+    } else if (xml.includes('error') || xml.includes('Error')) {
+      // Generic error case if patterns above didn't match
+      const errorMatch = xml.match(/<Error[^>]*>(.*?)<\/Error>/i) ||
+                        xml.match(/<Message[^>]*>(.*?)<\/Message>/i) ||
+                        xml.match(/<Description[^>]*>(.*?)<\/Description>/i)
+      
+      const errorMsg = errorMatch ? errorMatch[1].trim() : 'Registration failed for an unknown reason.'
       return NextResponse.json({ 
         status: 'failed', 
-        error: errorMsg.trim() 
+        error: errorMsg
       } as RegistrationResponse, { status: 400 })
     } else {
+      console.log('Registration status unclear, assuming pending')
       return NextResponse.json({ 
         status: 'pending', 
         message: 'Registration submitted, check status later.' 
@@ -152,7 +317,7 @@ export async function POST(req: NextRequest) {
     console.error('Error registering domain:', err)
     return NextResponse.json({ 
       status: 'failed', 
-      error: err.message 
+      error: err.message || 'Network error during domain registration'
     } as RegistrationResponse, { status: 500 })
   }
 } 

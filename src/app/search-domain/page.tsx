@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Card, Button, Form, AutoComplete, Spin, Typography, message, Tag, Tooltip } from 'antd'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { 
   SearchOutlined, 
@@ -11,7 +11,9 @@ import {
   LogoutOutlined,
   DollarOutlined,
   GlobalOutlined,
-  UserOutlined
+  UserOutlined,
+  InfoCircleOutlined,
+  CloseCircleOutlined
 } from '@ant-design/icons'
 import debounce from 'lodash/debounce'
 
@@ -51,6 +53,7 @@ function formatCurrency(amount: number, currency: number) {
 
 export default function SearchDomainPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(true)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -63,6 +66,17 @@ export default function SearchDomainPage() {
   useEffect(() => {
     checkUser()
   }, [])
+  
+  // Check for domain parameter in URL and search for it
+  useEffect(() => {
+    if (!loading) {
+      const domain = searchParams.get('domain')
+      if (domain) {
+        setSearchValue(domain)
+        debouncedSearch(domain)
+      }
+    }
+  }, [loading, searchParams])
 
   const checkUser = async () => {
     try {
@@ -96,6 +110,7 @@ export default function SearchDomainPage() {
       });
       
       const data = await res.json();
+      console.log('Search API response:', data);
       
       if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
         // Only set results if domains were actually found
@@ -120,15 +135,56 @@ export default function SearchDomainPage() {
         }));
         
         setOptions(formattedOptions);
+        
+        // Show success message when domains are found
+        if (formattedOptions.length > 0) {
+          message.success({
+            content: (
+              <div className="flex flex-col">
+                <div className="flex items-center">
+                  <SearchOutlined className="text-blue-500 mr-2" />
+                  <span>Found {formattedOptions.length} domains matching "{searchText}"</span>
+                </div>
+              </div>
+            ),
+            duration: 3
+          });
+        }
       } else {
         // Clear results if no domains found
         setSearchResults([]);
         setOptions([]);
+        
+        // Show info message that no domains were found
+        if (searchText.length > 2) {
+          message.info({
+            content: (
+              <div className="flex flex-col">
+                <div className="flex items-center">
+                  <InfoCircleOutlined className="text-blue-500 mr-2" />
+                  <span>No domains found matching "{searchText}"</span>
+                </div>
+              </div>
+            ),
+            duration: 3
+          });
+        }
       }
     } catch (error) {
       console.error('Search error:', error);
       setSearchResults([]);
       setOptions([]);
+      
+      // Show error message
+      message.error({
+        content: (
+          <div className="flex items-center">
+            <CloseCircleOutlined className="text-red-500 mr-2" />
+            <span>Error searching for domains</span>
+          </div>
+        ),
+        duration: 3
+      });
     } finally {
       setSearchLoading(false);
     }

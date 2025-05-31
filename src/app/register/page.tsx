@@ -39,7 +39,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       console.log("Attempting to sign up with:", values.email);
-      
+
       const { data, error } = await supabase.auth.signUp({
         email: values.email,
         password: values.password,
