@@ -178,4 +178,44 @@ For more information about the Sedo API, visit the [official documentation](http
 
 ## Deployment
 
-This application is designed to be deployed on Vercel. Simply connect your GitHub repository to Vercel and configure the environment variables. 
+This application is designed to be deployed on Vercel. Follow these steps for proper deployment:
+
+1. **Connect to Vercel**:
+   - Push your repository to GitHub
+   - Log in to [Vercel](https://vercel.com)
+   - Click "New Project" and import your repository
+   - Select the repository and click "Import"
+
+2. **Configure Environment Variables**:
+   - In the Vercel project dashboard, go to "Settings" > "Environment Variables"
+   - Add all required environment variables from your `.env.local` file:
+     - `NEXT_PUBLIC_SUPABASE_URL`
+     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     - `NAMECHEAP_USERNAME`
+     - `NAMECHEAP_API_KEY`
+     - `NAMECHEAP_CLIENT_IP`
+     - `NEXT_PUBLIC_SEDO_PARTNER_ID`
+     - `NEXT_PUBLIC_SEDO_SIGN_KEY`
+     - All WHOIS information variables
+
+3. **Enable Auto-Deployments**:
+   - In your Vercel project dashboard, go to "Settings" > "Git"
+   - Under "Deploy Hooks", ensure that "Auto Deploy for Production Branch" is enabled
+   - This will automatically redeploy the application whenever changes are pushed to the main branch
+
+4. **Verify Deployment**:
+   - After setting up environment variables, trigger a manual redeploy
+   - Go to "Deployments" tab and click on "Redeploy"
+   - Check deployment logs for any errors
+   - Ensure your Supabase connection is working properly
+
+5. **Custom Domain (Optional)**:
+   - In Vercel dashboard, go to "Settings" > "Domains"
+   - Add your custom domain and follow the verification process
+
+**Troubleshooting Vercel Deployment Issues**:
+- If you see "supabaseUrl is required" error, double-check your environment variables in Vercel settings
+- Ensure all Supabase and API credentials are correctly configured
+- For Namecheap API connectivity issues, verify that Vercel's IP addresses are added to your Namecheap API whitelist
+
+For more information about Vercel deployments, visit the [Vercel Documentation](https://vercel.com/docs). 
