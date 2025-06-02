@@ -110,13 +110,10 @@ export default function SearchDomainPage() {
       });
       
       const data = await res.json();
-      console.log('Search API response:', data);
       
       if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
-        // Only set results if domains were actually found
         setSearchResults(data.data);
         
-        // Create options for AutoComplete - only for domains that exist in user's account
         const formattedOptions = data.data.map((domain: any) => ({
           value: domain.domain,
           label: (
@@ -135,47 +132,15 @@ export default function SearchDomainPage() {
         }));
         
         setOptions(formattedOptions);
-        
-        // Show success message when domains are found
-        if (formattedOptions.length > 0) {
-          message.success({
-            content: (
-              <div className="flex flex-col">
-                <div className="flex items-center">
-                  <SearchOutlined className="text-blue-500 mr-2" />
-                  <span>Found {formattedOptions.length} domains matching "{searchText}"</span>
-                </div>
-              </div>
-            ),
-            duration: 3
-          });
-        }
       } else {
-        // Clear results if no domains found
         setSearchResults([]);
         setOptions([]);
-        
-        // Show info message that no domains were found
-        if (searchText.length > 2) {
-          message.info({
-            content: (
-              <div className="flex flex-col">
-                <div className="flex items-center">
-                  <InfoCircleOutlined className="text-blue-500 mr-2" />
-                  <span>No domains found matching "{searchText}"</span>
-                </div>
-              </div>
-            ),
-            duration: 3
-          });
-        }
       }
     } catch (error) {
       console.error('Search error:', error);
       setSearchResults([]);
       setOptions([]);
       
-      // Show error message
       message.error({
         content: (
           <div className="flex items-center">
@@ -188,7 +153,7 @@ export default function SearchDomainPage() {
     } finally {
       setSearchLoading(false);
     }
-  }, 300);
+  }, 500); // Increased debounce time to 500ms
 
   // Handle input change and trigger search
   const handleSearch = (value: string) => {
@@ -197,11 +162,11 @@ export default function SearchDomainPage() {
   };
 
   const handleSelect = (value: string) => {
-    // When a domain is selected from dropdown
     setSearchValue(value);
     const selectedDomain = searchResults.find(item => item.domain === value);
     if (selectedDomain) {
-      message.success(`Selected: ${value}`);
+      // Removed the success message on selection
+      // Just update the search value
     }
   };
 
