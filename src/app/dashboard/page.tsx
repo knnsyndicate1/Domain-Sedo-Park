@@ -14,7 +14,8 @@ import {
   SearchOutlined,
   InfoCircleOutlined,
   CloseCircleOutlined,
-  SyncOutlined
+  SyncOutlined,
+  UserOutlined
 } from '@ant-design/icons'
 
 const { Title, Text } = Typography
@@ -62,6 +63,7 @@ export default function DashboardPage() {
   const [autoListingInProgress, setAutoListingInProgress] = useState(false)
   const [showPrice, setShowPrice] = useState(false)
   const [navigating, setNavigating] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     checkUser()
@@ -69,7 +71,10 @@ export default function DashboardPage() {
 
   // Fetch domains for the logged-in user
   useEffect(() => {
-    if (userId) fetchDomains()
+    if (userId) {
+      fetchDomains()
+      checkAdminStatus()
+    }
     // eslint-disable-next-line
   }, [userId])
 
@@ -85,6 +90,25 @@ export default function DashboardPage() {
       console.error('Error checking auth status:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkAdminStatus = async () => {
+    if (!userId) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('role', 'admin')
+        .single()
+        
+      if (!error && data) {
+        setIsAdmin(true)
+      }
+    } catch (error) {
+      console.error('Error checking admin status:', error)
     }
   }
 
@@ -649,14 +673,19 @@ export default function DashboardPage() {
               <Text className="text-gray-600">Register domains and list them on Sedo</Text>
             </div>
             <div className="flex gap-3">
-              <Button 
-                type="primary" 
-                icon={<SearchOutlined />}
-                onClick={() => goToSearchDomains()}
-                className="bg-gradient-to-r from-blue-500 to-purple-500 border-0 shadow-md hover:from-blue-600 hover:to-purple-600"
-              >
-                Search Listed Domains
-              </Button>
+              {isAdmin && (
+                <Button 
+                  type="primary" 
+                  icon={<UserOutlined />}
+                  onClick={() => {
+                    setNavigating(true)
+                    setTimeout(() => router.push('/admin'), 400)
+                  }}
+                  className="bg-gradient-to-r from-purple-500 to-indigo-500 border-0 shadow-md hover:from-purple-600 hover:to-indigo-600"
+                >
+                  Admin Panel
+                </Button>
+              )}
               <Button 
                 type="primary" 
                 icon={<LogoutOutlined />}
@@ -666,7 +695,7 @@ export default function DashboardPage() {
                 Logout
               </Button>
             </div>
-        </div>
+          </div>
 
           {/* Domain registration form */}
           <Card className="rounded-2xl shadow-xl border-0 bg-white/70 backdrop-blur-md mb-8">
@@ -904,7 +933,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-      <style jsx global>{`
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .animate-fadeIn {
           animation: fadeIn 0.5s cubic-bezier(0.4,0,0.2,1);
         }
@@ -919,7 +949,8 @@ export default function DashboardPage() {
           from { transform: translateY(0); }
           to { transform: translateY(-8px); }
         }
-      `}</style>
+        `
+      }}></style>
     </>
   )
 } 

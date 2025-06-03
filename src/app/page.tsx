@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Button, Card, Typography } from 'antd';
-import { GlobalOutlined, LoginOutlined, UserAddOutlined } from '@ant-design/icons';
+import { Button, Card, Typography, Divider } from 'antd';
+import { GlobalOutlined, LoginOutlined, UserAddOutlined, LockOutlined } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
 
 const { Title, Text } = Typography;
@@ -12,9 +12,12 @@ const { Title, Text } = Typography;
 function TransitionLoader({ type = 'login' }) {
   const icon = type === 'register' ? 
     <UserAddOutlined style={{ fontSize: 28, color: '#6366f1' }} /> : 
+    type === 'admin' ?
+    <LockOutlined style={{ fontSize: 28, color: '#6366f1' }} /> :
     <LoginOutlined style={{ fontSize: 28, color: '#6366f1' }} />
   
-  const text = type === 'register' ? 'Creating account...' : 'Logging in...'
+  const text = type === 'register' ? 'Creating account...' : 
+               type === 'admin' ? 'Accessing admin...' : 'Logging in...';
   
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-blue-300 via-purple-200 to-pink-200 flex items-center justify-center z-50 transition-opacity duration-300">
@@ -113,6 +116,21 @@ export default function Home() {
                 className="bg-gradient-to-r from-purple-500 to-pink-500 border-0 shadow-md hover:from-purple-600 hover:to-pink-600 min-w-[150px]"
               >
                 Register
+              </Button>
+            </div>
+            
+            <Divider className="my-6">
+              <Text className="text-gray-500">Admin Access</Text>
+            </Divider>
+            
+            <div className="flex justify-center">
+              <Button 
+                size="large"
+                icon={<LockOutlined />}
+                onClick={() => handleNavigation('/admin-login', 'admin')}
+                className="bg-gradient-to-r from-gray-600 to-gray-800 text-white border-0 shadow-md hover:from-gray-700 hover:to-gray-900 min-w-[150px]"
+              >
+                Admin Login
               </Button>
             </div>
           </div>
