@@ -126,10 +126,23 @@ export default function DashboardPage() {
       message.error('Failed to fetch domains')
       console.error('Error fetching domains:', error)
     } else {
-        // Filter out domains that are already listed on Sedo
+        // Filter out domains that are already listed on Sedo or have Sedo nameservers
         // Only show domains that still need action (need to be listed on Sedo)
         const domainsNeedingAction = (data as Domain[])
-          .filter(domain => !domain.sedo_listed)
+          .filter(domain => {
+            // Filter out domains explicitly marked as Sedo listed
+            if (domain.sedo_listed) return false;
+            
+            // IMPORTANT: Also filter out any domain that has Sedo nameservers
+            // regardless of its sedo_listed flag value
+            if (domain.nameservers && 
+                (domain.nameservers.includes('sedoparking.com') || 
+                 domain.nameservers.includes('sedo'))) {
+              console.log(`Domain ${domain.domain} has Sedo nameservers, filtering out`);
+              return false;
+            }
+            return true;
+          })
           .filter(Boolean); // Remove any null/undefined entries
         
         // Remove duplicates based on domain name
@@ -144,6 +157,9 @@ export default function DashboardPage() {
         
         // Set domains state, ensuring no listed domains are shown
         setDomains(uniqueDomains);
+        
+        // Log the filtered domains for debugging
+        console.log(`Filtered domains: ${uniqueDomains.length} domains need action`);
     }
     } catch (err) {
       console.error('Error fetching domains:', err)
@@ -856,6 +872,54 @@ export default function DashboardPage() {
       router.push('/search-domain');
     }
   }
+
+  // Add a function to immediately fix any domains with sedo nameservers by marking them as listed
+  const fixSedoListedDomains = async () => {
+    try {
+      // Find all domains with Sedo nameservers but not marked as listed
+      const { data, error } = await supabase
+        .from('domains')
+        .select('*')
+        .eq('status', 'registered')
+        .eq('sedo_listed', false)
+        .or('nameservers.ilike.%sedoparking.com%,nameservers.ilike.%sedo%');
+      
+      if (error) {
+        console.error('Error finding domains to fix:', error);
+        return;
+      }
+      
+      console.log(`Found ${data?.length || 0} domains with Sedo nameservers that need fixing`);
+      
+      // Update each domain to be marked as listed
+      if (data && data.length > 0) {
+        for (const domain of data) {
+          const { error: updateError } = await supabase
+            .from('domains')
+            .update({ sedo_listed: true })
+            .eq('id', domain.id);
+            
+          if (updateError) {
+            console.error(`Error updating domain ${domain.domain}:`, updateError);
+          } else {
+            console.log(`Fixed domain ${domain.domain} to be marked as sedo_listed`);
+          }
+        }
+        
+        // After fixing, refresh the domains list
+        fetchDomains();
+      }
+    } catch (err) {
+      console.error('Error fixing domains:', err);
+    }
+  };
+
+  // Call the fix function when the component mounts
+  useEffect(() => {
+    if (userId) {
+      fixSedoListedDomains();
+    }
+  }, [userId]);
 
   if (loading) {
     return <ModernLoader />
