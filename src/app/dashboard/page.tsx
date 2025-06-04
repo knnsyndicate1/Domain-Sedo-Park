@@ -128,7 +128,9 @@ export default function DashboardPage() {
     } else {
         // Filter out domains that are already listed on Sedo
         // Only show domains that still need action (need to be listed on Sedo)
-        const domainsNeedingAction = (data as Domain[]).filter(domain => !domain.sedo_listed)
+        const domainsNeedingAction = (data as Domain[])
+          .filter(domain => !domain.sedo_listed)
+          .filter(Boolean); // Remove any null/undefined entries
         
         // Remove duplicates based on domain name
         const uniqueDomains = domainsNeedingAction.reduce((acc, current) => {
@@ -140,13 +142,14 @@ export default function DashboardPage() {
           }
         }, [] as Domain[]);
         
-        setDomains(uniqueDomains)
+        // Set domains state, ensuring no listed domains are shown
+        setDomains(uniqueDomains);
     }
     } catch (err) {
       console.error('Error fetching domains:', err)
       message.error('Failed to load your domains')
     } finally {
-      setFetchingDomains(false)
+    setFetchingDomains(false)
     }
   }
 
@@ -805,6 +808,10 @@ export default function DashboardPage() {
             console.error('Error saving domain to localStorage:', e);
           }
           
+          // Immediately remove domain from the UI
+          setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
+          
+          // Show success message
           message.success({ 
             content: (
               <div className="flex items-center">
@@ -812,12 +819,18 @@ export default function DashboardPage() {
                 <span><strong>{domain}</strong> successfully listed on Sedo!</span>
               </div>
             ),
-            duration: 5,
+            duration: 3,
             key: domain
           });
-          
-          // Update the domains list - filtering out the one that was just listed
-          setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
+
+          // Redirect to search page after a short delay so user can see the success message
+          setTimeout(() => {
+            message.info({
+              content: 'Redirecting to search page to find your listed domains...',
+              duration: 2
+            });
+            goToSearchDomains();
+          }, 2500);
         }
       } else {
         message.error({ content: `Failed to list on Sedo: ${data.error}`, key: domain });
@@ -1065,11 +1078,6 @@ export default function DashboardPage() {
                           <Tag color="success" className="rounded-full px-3 border-0 bg-green-100 text-green-700">
                             registered
                           </Tag>
-                          {item.sedo_listed && (
-                            <Tag color="blue" className="rounded-full px-3 border-0 bg-blue-100 text-blue-700">
-                              Sedo Listed
-                            </Tag>
-                          )}
                           <Tag color="default" className="rounded-full px-3 border-0 bg-gray-100 text-gray-700">
                             {/* Display registration date + 1 year for expiration */}
                             {item.created_at && new Date(new Date(item.created_at).setFullYear(new Date(item.created_at).getFullYear() + 1)).toLocaleDateString()}
@@ -1089,11 +1097,6 @@ export default function DashboardPage() {
                         Auto-Sedo Listing
                       </Button>
                     </div>
-                    {item.sedo_listed && (
-                      <div className="mt-3 w-full flex justify-end">
-                        <div className="text-green-600 font-medium">Successfully listed on Sedo</div>
-                  </div>
-                    )}
                     {item.nameservers && (
                       <div className="mt-1 text-sm text-gray-500">
                         Nameservers: {item.nameservers}
