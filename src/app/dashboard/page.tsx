@@ -584,12 +584,16 @@ export default function DashboardPage() {
         
         clearTimeout(timeoutId);
         
-        console.log('Registration API response status:', res.status);
-        
         if (!res.ok) {
           const errorText = await res.text();
-          console.error('API Error Response:', errorText);
-          throw new Error(`API returned status ${res.status}: ${errorText}`);
+          console.error(`API Error Response (${res.status}):`, errorText);
+          
+          // Add specific handling for connection errors
+          if (res.status === 401) {
+            throw new Error('Connection error: API authentication failed. Please try again later.');
+          } else {
+            throw new Error(`Registration API returned status ${res.status}`);
+          }
         }
         
         const regData = await res.json();
@@ -665,17 +669,17 @@ export default function DashboardPage() {
       } catch (fetchError: any) {
         console.error('Fetch error during registration:', fetchError);
         
-        // For abort errors, provide a cleaner message
         const isAbortError = fetchError.name === 'AbortError';
         const isNetworkError = !navigator.onLine || fetchError.message?.includes('network') || 
-          fetchError.message?.includes('fetch') || fetchError.message?.includes('connect');
+          fetchError.message?.includes('fetch') || fetchError.message?.includes('connect') || 
+          fetchError.message?.includes('Connection error');
         
         const errorTitle = isAbortError ? "Registration Timeout" : 
-                          isNetworkError ? "Network Error" : "Connection Error";
+                          isNetworkError ? "Connection Error" : "Registration Error";
         
         const errorDescription = isAbortError ? "Registration request took too long. The server might be busy." : 
-                                isNetworkError ? "Check your internet connection and try again." : 
-                                "Failed to connect to registration service";
+                                isNetworkError ? "Failed to connect to registration service" : 
+                                fetchError.message || "Failed to connect to registration service";
         
         // Show error with retry button
         message.error({
@@ -688,19 +692,18 @@ export default function DashboardPage() {
                   <div className="text-sm">{errorDescription}</div>
                 </div>
               </div>
-              <Button
-                type="link"
-                className="mt-2 p-0 h-auto text-blue-600 hover:text-blue-800"
-                onClick={() => {
-                  message.loading({
-                    content: 'Retrying registration...',
-                    duration: 1,
-                  });
-                  setTimeout(() => onRegister(), 1500);
-                }}
-              >
-                <SyncOutlined /> Retry Registration
-              </Button>
+              <div className="mt-3 flex justify-center">
+                <Button
+                  type="primary"
+                  icon={<SyncOutlined />}
+                  onClick={() => {
+                    message.destroy(`reg-error-${normalizedDomain}`);
+                    setTimeout(() => onRegister(), 500);
+                  }}
+                >
+                  Retry Registration
+                </Button>
+              </div>
             </div>
           ),
           duration: 0,  // Keep showing until user takes action
@@ -714,7 +717,7 @@ export default function DashboardPage() {
           nameservers: 'Registration error: connection failed'
         }).eq('id', newDomain.id);
         
-        // Don't throw error so form remains in editable state for retry
+        setRegistering(false);
         return;
       }
       
@@ -768,6 +771,10 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain }),
       });
+      
+      if (!res.ok) {
+        throw new Error(`Failed to connect to Sedo API (${res.status})`);
+      }
       
       const data = await res.json();
       
@@ -838,21 +845,56 @@ export default function DashboardPage() {
             duration: 3,
             key: domain
           });
-
-          // Redirect to search page after a short delay so user can see the success message
-          setTimeout(() => {
-            message.info({
-              content: 'Redirecting to search page to find your listed domains...',
-              duration: 2
-            });
-            goToSearchDomains();
-          }, 2500);
+          
+          // DO NOT automatically redirect - let user explicitly click search button if desired
+          // This fixes the issue where domain disappears before user sees it's listed
         }
       } else {
-        message.error({ content: `Failed to list on Sedo: ${data.error}`, key: domain });
+        message.error({ 
+          content: (
+            <div className="flex items-center">
+              <CloseCircleOutlined className="text-red-500 mr-2" />
+              <div>
+                <div className="font-bold">Sedo Listing Failed</div>
+                <div className="text-sm">{data.error || "Could not list domain on Sedo. Please try again."}</div>
+              </div>
+            </div>
+          ), 
+          key: domain,
+          duration: 5
+        });
       }
-    } catch (error) {
-      message.error({ content: 'Error connecting to Sedo', key: domain });
+    } catch (error: any) {
+      console.error('Error listing domain on Sedo:', error);
+      
+      // Show a retry option for connection errors
+      message.error({ 
+        content: (
+          <div className="flex flex-col">
+            <div className="flex items-center">
+              <CloseCircleOutlined className="text-red-500 mr-2" />
+              <div>
+                <div className="font-bold">Connection Error</div>
+                <div className="text-sm">Failed to connect to registration service</div>
+              </div>
+            </div>
+            <div className="mt-3 flex justify-center">
+              <Button
+                type="primary"
+                icon={<SyncOutlined />}
+                onClick={() => {
+                  message.destroy(domain);
+                  setTimeout(() => handleAutoListOnSedo(domain, domainId), 500);
+                }}
+              >
+                Retry Registration
+              </Button>
+            </div>
+          </div>
+        ), 
+        key: domain,
+        duration: 0  // Don't auto-close so user can retry
+      });
     } finally {
       setAutoListingInProgress(false);
     }

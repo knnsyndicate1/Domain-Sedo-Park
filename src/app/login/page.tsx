@@ -251,7 +251,7 @@ export default function LoginPage() {
       if (roleData?.role === 'admin') {
         router.push('/admin')
       } else {
-        router.push('/search-domain')
+      router.push('/search-domain')
       }
     } catch (error: any) {
       console.error('Login error:', error)
@@ -387,50 +387,50 @@ export default function LoginPage() {
           )}
           
           {!checkingApproval && !pendingApproval && !rejectedUser && (
-            <Form 
-              form={form}
-              layout="vertical"
-              onFinish={onFinish}
-              autoComplete="off"
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={onFinish}
+            autoComplete="off"
               initialValues={{ email: userEmail }}
+          >
+            <Form.Item
+              label={<span className="text-gray-700 font-medium">Email</span>}
+              name="email"
+              rules={[
+                { required: true, message: 'Please input your email!' },
+                { type: 'email', message: 'Please enter a valid email!' },
+              ]}
             >
-              <Form.Item
-                label={<span className="text-gray-700 font-medium">Email</span>}
-                name="email"
-                rules={[
-                  { required: true, message: 'Please input your email!' },
-                  { type: 'email', message: 'Please enter a valid email!' },
-                ]}
+              <Input size="large" className="rounded-lg shadow border-0 bg-white/80 focus:bg-white" />
+            </Form.Item>
+            <Form.Item
+              label={<span className="text-gray-700 font-medium">Password</span>}
+              name="password"
+              rules={[{ required: true, message: 'Please input your password!' }]}
+            >
+              <Input.Password size="large" className="rounded-lg shadow border-0 bg-white/80 focus:bg-white" />
+            </Form.Item>
+            <Form.Item>
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                block 
+                size="large" 
+                icon={loading ? <LoadingOutlined /> : <LoginOutlined />} 
+                className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600" 
+                style={{ fontWeight: 600, letterSpacing: 1 }}
+                loading={loading}
               >
-                <Input size="large" className="rounded-lg shadow border-0 bg-white/80 focus:bg-white" />
-              </Form.Item>
-              <Form.Item
-                label={<span className="text-gray-700 font-medium">Password</span>}
-                name="password"
-                rules={[{ required: true, message: 'Please input your password!' }]}
-              >
-                <Input.Password size="large" className="rounded-lg shadow border-0 bg-white/80 focus:bg-white" />
-              </Form.Item>
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block 
-                  size="large" 
-                  icon={loading ? <LoadingOutlined /> : <LoginOutlined />} 
-                  className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600" 
-                  style={{ fontWeight: 600, letterSpacing: 1 }}
-                  loading={loading}
-                >
-                  {loading ? "Logging in..." : "Login"}
-                </Button>
-              </Form.Item>
-              <div className="text-center">
-                <Link href="/register" className="text-blue-500 font-medium">
-                  Don't have an account? Register
-                </Link>
-              </div>
-            </Form>
+                {loading ? "Logging in..." : "Login"}
+              </Button>
+            </Form.Item>
+            <div className="text-center">
+              <Link href="/register" className="text-blue-500 font-medium">
+                Don't have an account? Register
+              </Link>
+            </div>
+          </Form>
           )}
         </Card>
       </div>
