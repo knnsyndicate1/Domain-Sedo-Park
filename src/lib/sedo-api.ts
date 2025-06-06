@@ -43,27 +43,26 @@ export async function listDomainOnSedo(domain: string, credentials: SedoCredenti
     params.append('password', password);
     params.append('output_method', 'xml');
     
-    // Domain entry parameters
+    // Domain entry parameters - Using proper format according to Sedo API docs
     params.append('domainentry[0][domain]', domain);
     
     // Add categories - Using category ID 1008 (Miscellaneous) from Sedo's category API
-    // Reference: https://api.sedo.com/api/v1/DomainCategories?output_method=xml&language=en
     SEDO_CONFIG.DEFAULT_CATEGORIES.forEach((category, index) => {
       params.append(`domainentry[0][category][${index}]`, category.toString());
     });
     
-    // Set as NOT for sale - domains will be parked but not listed for sale
-    params.append('domainentry[0][forsale]', '0'); // Not for sale (0)
-    params.append('domainentry[0][price]', '0'); // No price needed when not for sale
+    // Set listing options
+    params.append('domainentry[0][forsale]', '1'); // List for sale (1)
+    params.append('domainentry[0][price]', SEDO_CONFIG.DEFAULT_PRICE.toString()); // Set default price
     params.append('domainentry[0][minprice]', '0'); // No minimum price
-    params.append('domainentry[0][fixedprice]', '0'); // No fixed price needed
-    params.append('domainentry[0][currency]', SEDO_CONFIG.DEFAULT_CURRENCY.toString()); 
+    params.append('domainentry[0][fixedprice]', '1'); // Set as fixed price offer
+    params.append('domainentry[0][currency]', SEDO_CONFIG.DEFAULT_CURRENCY.toString());
     params.append('domainentry[0][domainlanguage]', SEDO_CONFIG.DEFAULT_LANGUAGE); 
     
-    console.log('Sending request to Sedo API for domain parking (not for sale)...');
-    console.log(`Domain: ${domain}, Language: ${SEDO_CONFIG.DEFAULT_LANGUAGE}`);
+    console.log('Sending request to Sedo API for domain listing...');
+    console.log(`Domain: ${domain}, Price: ${SEDO_CONFIG.DEFAULT_PRICE}, Language: ${SEDO_CONFIG.DEFAULT_LANGUAGE}`);
     
-    // Make the API call
+    // Make the API call to DomainInsert endpoint
     const response = await axios.post(SEDO_CONFIG.API_URL, params, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'

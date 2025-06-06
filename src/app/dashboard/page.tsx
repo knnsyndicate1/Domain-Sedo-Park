@@ -762,8 +762,10 @@ export default function DashboardPage() {
           </div>
         ),
         key: domain,
-        duration: 0
+        duration: 0 // Don't auto-close the loading message
       });
+      
+      console.log(`Attempting to list domain ${domain} on Sedo...`);
       
       // Call the Sedo API
       const res = await fetch('/api/sedo/list', {
@@ -777,6 +779,7 @@ export default function DashboardPage() {
       }
       
       const data = await res.json();
+      console.log(`Sedo API response for ${domain}:`, data);
       
       if (data.success) {
         // Update the database
@@ -789,6 +792,7 @@ export default function DashboardPage() {
           .eq('id', domainId);
           
         if (error) {
+          console.error(`Failed to update database for ${domain}:`, error);
           message.error({ content: 'Failed to update database', key: domain });
         } else {
           // Store domain in localStorage for simulating listed domains in searches
@@ -834,7 +838,7 @@ export default function DashboardPage() {
           // Immediately remove domain from the UI
           setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
           
-          // Show success message
+          // Show simple success message that auto-dismisses after a few seconds
           message.success({ 
             content: (
               <div className="flex items-center">
@@ -842,7 +846,7 @@ export default function DashboardPage() {
                 <span><strong>{domain}</strong> successfully listed on Sedo!</span>
               </div>
             ),
-            duration: 3,
+            duration: 6, // Auto-close after 6 seconds
             key: domain
           });
           
