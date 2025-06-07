@@ -147,6 +147,7 @@ export async function POST(req: NextRequest) {
 
   // Set custom nameservers for Sedo parking
   const nameservers = 'ns1.sedoparking.com,ns2.sedoparking.com'
+  console.log(`Setting nameservers for domain ${domain} to: ${nameservers}`)
 
   // Use fixed company details for all registrations
   const registrantFirstName = 'Khushwant'

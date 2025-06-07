@@ -8,26 +8,9 @@ export type Domain = {
   status: string
   sedo_listed: boolean
   created_at: string
-  nameservers?: string
-}
-
-/**
- * User profile data
- */
-export type Profile = {
-  id: string
-  email: string
-  created_at: string
-}
-
-/**
- * Namecheap API response type for price checking
- */
-export type PriceCheckResponse = {
-  price: number | null
-  available: boolean
-  message?: string
-  error?: string
+  nameservers?: string // Contains nameserver information, typically 'ns1.sedoparking.com, ns2.sedoparking.com' for Sedo
+  registration_date?: string
+  expiry_date?: string
 }
 
 /**
@@ -36,17 +19,9 @@ export type PriceCheckResponse = {
 export type RegistrationResponse = {
   status: 'registered' | 'pending' | 'failed'
   message?: string
+  domain?: string
+  nameservers?: string // Contains nameserver information from the registration API
   error?: string
-}
-
-/**
- * Registration form data
- */
-export type RegistrationFormData = {
-  firstName: string
-  lastName: string
-  email: string
-  phone: string
 }
 
 /**
@@ -73,6 +48,12 @@ export type RegistrationFormData = {
  * WHOIS_COUNTRY=US
  * WHOIS_PHONE=+1.5555555555
  * WHOIS_EMAIL=contact@yourdomain.com
+ * 
+ * # Sedo API
+ * SEDO_USERNAME=your_sedo_username
+ * SEDO_PASSWORD=your_sedo_password
+ * SEDO_PARTNER_ID=your_sedo_partner_id
+ * SEDO_SIGN_KEY=your_sedo_sign_key
  */
 export type EnvVars = {
   // Placeholder type for documentation purposes only

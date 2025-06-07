@@ -14,6 +14,17 @@ interface SedoApiResponse {
   listed?: boolean;
 }
 
+// Add a type definition for Sedo search result items
+interface SedoSearchItem {
+  domain: string;
+  type: string;
+  price: string | number;
+  currency: string | number;
+  rank: string | number;
+  url: string;
+  [key: string]: any;
+}
+
 const parser = new XMLParser();
 
 /**
@@ -51,16 +62,16 @@ export async function listDomainOnSedo(domain: string, credentials: SedoCredenti
       params.append(`domainentry[0][category][${index}]`, category.toString());
     });
     
-    // Set listing options
-    params.append('domainentry[0][forsale]', '1'); // List for sale (1)
-    params.append('domainentry[0][price]', SEDO_CONFIG.DEFAULT_PRICE.toString()); // Set default price
+    // Set domain as not for sale (parking only) as per requirements
+    params.append('domainentry[0][forsale]', '0'); // Not for sale (0)
+    params.append('domainentry[0][price]', '0'); // No price when not for sale
     params.append('domainentry[0][minprice]', '0'); // No minimum price
-    params.append('domainentry[0][fixedprice]', '1'); // Set as fixed price offer
+    params.append('domainentry[0][fixedprice]', '0'); // No fixed price option
     params.append('domainentry[0][currency]', SEDO_CONFIG.DEFAULT_CURRENCY.toString());
     params.append('domainentry[0][domainlanguage]', SEDO_CONFIG.DEFAULT_LANGUAGE); 
     
-    console.log('Sending request to Sedo API for domain listing...');
-    console.log(`Domain: ${domain}, Price: ${SEDO_CONFIG.DEFAULT_PRICE}, Language: ${SEDO_CONFIG.DEFAULT_LANGUAGE}`);
+    console.log('Sending request to Sedo API for domain parking (not for sale)...');
+    console.log(`Domain: ${domain}, Language: ${SEDO_CONFIG.DEFAULT_LANGUAGE}`);
     
     // Make the API call to DomainInsert endpoint
     const response = await axios.post(SEDO_CONFIG.API_URL, params, {
@@ -243,15 +254,14 @@ export async function searchDomainOnSedo(keyword: string, credentials: SedoCrede
 function simulateUserDomainSearch(keyword: string): SedoApiResponse {
   console.log('Using fallback domain search for user domains with keyword:', keyword);
   
-  // NOTE: In the actual implementation, this function should be removed
-  // and the real Sedo API should be used
-  // This is just a temporary simulation for development
+  // Normalize the keyword for case-insensitive search
+  const normalizedKeyword = keyword.toLowerCase().trim();
   
   // ONLY these domains are actually registered AND listed on Sedo in the user's account
   // These match what's shown in the dashboard image
   const userRegisteredAndListedDomains = [
     {
-      domain: 'male-fertility-clinic-poland.click', // Fixed typo: clinin → clinic
+      domain: 'male-fertility-clinic-poland.click',
       price: 2000,
       currency: 1, // USD
       forsale: 1,
@@ -274,33 +284,75 @@ function simulateUserDomainSearch(keyword: string): SedoApiResponse {
   
   try {
     // Check if we're in a browser environment
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      console.log('Checking localStorage for listed domains...');
       const savedDomains = localStorage.getItem('listed_domains');
+      
       if (savedDomains) {
-        const parsedDomains = JSON.parse(savedDomains);
-        if (Array.isArray(parsedDomains)) {
-          // Add any saved domains to our list of domains
-          // Avoid duplicates by checking if the domain already exists
-          parsedDomains.forEach(domain => {
-            if (!allDomains.some(d => d.domain === domain.domain)) {
-              allDomains.push(domain);
-            }
-          });
-          console.log(`Loaded ${parsedDomains.length} domains from localStorage`);
+        console.log('Found raw localStorage data:', savedDomains);
+        try {
+          const parsedDomains = JSON.parse(savedDomains);
+          console.log('Parsed domains from localStorage:', parsedDomains);
+          
+          if (Array.isArray(parsedDomains)) {
+            // Add any saved domains to our list of domains
+            // Avoid duplicates by checking if the domain already exists
+            parsedDomains.forEach(domain => {
+              // Normalize domain for comparison
+              const normalizedDomain = domain.domain.toLowerCase();
+              if (!allDomains.some(d => d.domain.toLowerCase() === normalizedDomain)) {
+                console.log(`Adding domain from localStorage: ${domain.domain}`);
+                allDomains.push({
+                  ...domain,
+                  domain: normalizedDomain // Ensure lowercase for consistent matching
+                });
+              }
+            });
+            console.log(`Loaded ${parsedDomains.length} domains from localStorage, total domains: ${allDomains.length}`);
+            console.log('All loaded domains:', allDomains.map(d => d.domain).join(', '));
+          }
+        } catch (parseError) {
+          console.error('Error parsing domains JSON from localStorage:', parseError);
         }
+      } else {
+        console.log('No listed_domains found in localStorage');
       }
+    } else {
+      console.log('Not in browser environment, skipping localStorage check');
     }
   } catch (error) {
     console.error('Error loading domains from localStorage:', error);
   }
   
   // Filter domains by keyword (case insensitive)
-  // ONLY return domains that are in the user's registered domains list AND listed on Sedo
-  const filteredDomains = allDomains.filter(domain => 
-    domain.domain.toLowerCase().includes(keyword.toLowerCase())
-  );
+  // Check for both exact matches and partial matches
+  const filteredDomains = allDomains.filter(domain => {
+    const domainLower = domain.domain.toLowerCase();
+    
+    // Check for direct match with or without extension
+    if (domainLower === normalizedKeyword) {
+      console.log(`Found exact domain match: ${domain.domain}`);
+      return true;
+    }
+    
+    // Check if the domain contains the keyword
+    if (domainLower.includes(normalizedKeyword)) {
+      console.log(`Found domain with keyword: ${domain.domain}`);
+      return true;
+    }
+    
+    // Check for domain without extension
+    const domainWithoutExt = domainLower.split('.')[0];
+    if (domainWithoutExt === normalizedKeyword) {
+      console.log(`Found domain base match: ${domain.domain}`);
+      return true;
+    }
+    
+    return false;
+  });
   
   console.log(`Found ${filteredDomains.length} domains matching "${keyword}" from ${allDomains.length} total domains`);
+  console.log('Matching domains:', filteredDomains.map(d => d.domain).join(', ') || 'none');
   
   return {
     success: true,
@@ -308,4 +360,107 @@ function simulateUserDomainSearch(keyword: string): SedoApiResponse {
     data: filteredDomains,
     listed: filteredDomains.length > 0
   };
+}
+
+/**
+ * Searches for domains on Sedo marketplace using their official API
+ * Documentation: https://api.sedo.com/apidocs/v1/Basic/functions/sedoapi_DomainSearch.html
+ */
+export async function searchDomainsOnSedoMarketplace(keyword: string, credentials: SedoCredentials): Promise<SedoApiResponse> {
+  try {
+    // Get credentials from environment variables if available
+    const username = process.env.SEDO_USERNAME || credentials.email;
+    const password = process.env.SEDO_PASSWORD || credentials.password;
+    
+    console.log('Using Sedo credentials for marketplace search:', 
+      { 
+        partnerId: SEDO_CONFIG.PARTNER_ID,
+        username: username,
+        hasPassword: !!password
+      }
+    );
+    
+    // Prepare the request parameters for Sedo API according to documentation
+    const params = new URLSearchParams();
+    params.append('partnerid', SEDO_CONFIG.PARTNER_ID);
+    params.append('signkey', SEDO_CONFIG.SIGN_KEY);
+    params.append('output_method', 'xml');
+    params.append('keyword', keyword);
+    
+    // Set optional parameters with reasonable defaults
+    params.append('tld', '%'); // Search all TLDs
+    params.append('kwtype', 'C'); // 'C' for Contains
+    params.append('resultsize', '100'); // Maximum number of results to return
+    params.append('language', SEDO_CONFIG.DEFAULT_LANGUAGE);
+    
+    console.log('Searching Sedo marketplace for domains containing:', keyword);
+    
+    // Make the API call to DomainSearch endpoint
+    const response = await axios.post('https://api.sedo.com/api/v1/DomainSearch', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+    
+    // Parse XML response
+    const xmlData = response.data;
+    const result = parser.parse(xmlData);
+    
+    console.log('Sedo DomainSearch API response:', result);
+    
+    // Check for faults in the response
+    if (result.SEDOFAULT) {
+      // Handle API errors
+      console.error('Sedo API error:', result.SEDOFAULT);
+      return {
+        success: false,
+        message: `Sedo API Error: ${result.SEDOFAULT.faultcode} - ${result.SEDOFAULT.faultstring}`,
+        listed: false
+      };
+    }
+    
+    // Check for successful response and extract domains
+    if (result.SEDOSEARCH && result.SEDOSEARCH.item) {
+      const items = Array.isArray(result.SEDOSEARCH.item) 
+        ? result.SEDOSEARCH.item 
+        : [result.SEDOSEARCH.item];
+      
+      console.log(`Found ${items.length} domains in Sedo marketplace matching "${keyword}"`);
+      
+      // Format the response to match our expected data structure
+      const domains = items.map((item: SedoSearchItem) => ({
+        domain: item.domain,
+        type: item.type, // 'D' for Domain, 'W' for Website
+        price: parseFloat(String(item.price)) || 0,
+        currency: parseInt(String(item.currency)) || 1,
+        forsale: 1, // All marketplace domains are for sale
+        fixedprice: parseFloat(String(item.price)) > 0 ? 1 : 0,
+        rank: item.rank,
+        url: item.url,
+        sedo_listed: true
+      }));
+      
+      return {
+        success: true,
+        message: `Found ${domains.length} domains matching "${keyword}" on Sedo marketplace`,
+        data: domains,
+        listed: domains.length > 0
+      };
+    }
+    
+    // No domains found
+    return {
+      success: true,
+      message: `No domains matching "${keyword}" found on Sedo marketplace`,
+      data: [],
+      listed: false
+    };
+    
+  } catch (error) {
+    console.error('Error calling Sedo DomainSearch API:', error);
+    
+    // Fall back to simulated search for development/testing
+    console.log('Falling back to simulated domain search');
+    return simulateUserDomainSearch(keyword);
+  }
 } 

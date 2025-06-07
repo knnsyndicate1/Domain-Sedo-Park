@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
-import { searchDomainOnSedo } from '@/lib/sedo-api';
+import { NextRequest, NextResponse } from 'next/server';
+import { searchDomainOnSedo, searchDomainsOnSedoMarketplace } from '../../../../lib/sedo-api';
 
 // Define an interface for the domain object
 interface SedoDomain {
@@ -11,52 +11,100 @@ interface SedoDomain {
   [key: string]: any; // Allow other properties
 }
 
-export async function POST(request: Request) {
+interface SedoSearchParams {
+  keyword: string;
+}
+
+interface SedoSearchResult {
+  domain: string;
+  forsale: number;
+  price?: number;
+  currency?: number;
+  fixedprice?: number;
+}
+
+interface SedoSearchResponse {
+  success: boolean;
+  data?: SedoSearchResult[];
+  error?: string;
+}
+
+export async function POST(request: NextRequest) {
   try {
-    const { keyword } = await request.json();
+    const { keyword } = await request.json() as SedoSearchParams;
     
-    if (!keyword) {
-      return NextResponse.json({ error: 'Keyword is required' }, { status: 400 });
-    }
-
-    // Get Sedo credentials from environment variables
-    const sedoUsername = process.env.SEDO_USERNAME;
-    const sedoPassword = process.env.SEDO_PASSWORD;
-
-    if (!sedoUsername || !sedoPassword) {
-      console.warn('Using API without proper Sedo credentials - will use simulated domains');
-    }
-    
-    // Call the Sedo API to get ONLY the user's registered domains and filter them by keyword
-    const result = await searchDomainOnSedo(keyword, {
-      email: sedoUsername || '',
-      password: sedoPassword || '',
-    });
-    
-    if (result.success) {
-      // In production, this would only return domains that are actually in the user's account
-      // In development with simulation, we're ensuring we only return the 4 test domains
-      
+    if (!keyword || typeof keyword !== 'string') {
       return NextResponse.json({ 
-        success: true,
-        message: result.message,
-        data: result.data,
-        listed: result.listed,
-        fromFallback: result.message && result.message.includes('(simulated)')
+        success: false, 
+        error: 'Missing or invalid keyword' 
+      } as SedoSearchResponse, { status: 400 });
+    }
+
+    // Normalize the keyword for case-insensitive search
+    const normalizedKeyword = keyword.toLowerCase().trim();
+    console.log(`Searching for domains containing: ${normalizedKeyword}`);
+    
+    // Add cache-control header to prevent repeated identical requests
+    const headers = new Headers();
+    headers.append('Cache-Control', 'private, max-age=30'); // Cache for 30 seconds
+    
+    try {
+      // Search two sources:
+      // 1. Search the Sedo marketplace using the DomainSearch API
+      console.log(`Searching Sedo marketplace for: "${normalizedKeyword}"`);
+      const marketplaceResults = await searchDomainsOnSedoMarketplace(normalizedKeyword, {
+        email: process.env.SEDO_USERNAME || 'Kareer',
+        password: process.env.SEDO_PASSWORD || 'defaultpassword'
       });
-    } else {
+      
+      // 2. Search the user's owned & listed domains
+      console.log(`Searching user's own domains for: "${normalizedKeyword}"`);
+      const userDomainsResults = await searchDomainOnSedo(normalizedKeyword, {
+        email: process.env.SEDO_USERNAME || 'Kareer',
+        password: process.env.SEDO_PASSWORD || 'defaultpassword'
+      });
+      
+      // Combine both result sets, avoiding duplicates
+      const combinedDomains: SedoSearchResult[] = [];
+      
+      // Add user's own domains first (usually more important)
+      if (userDomainsResults.success && userDomainsResults.data && Array.isArray(userDomainsResults.data)) {
+        console.log(`Found ${userDomainsResults.data.length} user domains that match`);
+        combinedDomains.push(...userDomainsResults.data);
+      }
+      
+      // Add marketplace domains, avoiding duplicates
+      if (marketplaceResults.success && marketplaceResults.data && Array.isArray(marketplaceResults.data)) {
+        console.log(`Found ${marketplaceResults.data.length} marketplace domains that match`);
+        marketplaceResults.data.forEach(domain => {
+          if (!combinedDomains.some(d => d.domain === domain.domain)) {
+            combinedDomains.push(domain);
+          }
+        });
+      }
+      
+      console.log(`Returning ${combinedDomains.length} total domains (user domains + marketplace listings)`);
+      console.log(`Domain list: ${combinedDomains.map(d => d.domain).join(', ') || 'none'}`);
+      
+      return NextResponse.json({
+        success: true,
+        data: combinedDomains
+      } as SedoSearchResponse, { headers });
+      
+    } catch (searchError) {
+      console.error('Error in domain search:', searchError);
       return NextResponse.json({ 
-        success: false,
-        error: result.message,
-        listed: false
-      }, { status: 500 });
+        success: false, 
+        error: 'Search processing error',
+        data: [] 
+      } as SedoSearchResponse, { status: 500, headers });
     }
-  } catch (error) {
-    console.error('Error in Sedo API search:', error);
+  } catch (parseError) {
+    console.error('Error processing search request:', parseError);
     return NextResponse.json({ 
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-      listed: false
-    }, { status: 500 });
+      success: false, 
+      error: 'Failed to process search request',
+      data: [] 
+    } as SedoSearchResponse, { status: 400 });
   }
 } 

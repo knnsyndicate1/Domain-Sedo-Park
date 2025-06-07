@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { listDomainOnSedo } from '@/lib/sedo-api';
+import { supabase } from '../../../../lib/supabase';
+import { listDomainOnSedo } from '../../../../lib/sedo-api';
 
 // Response interface for consistent typing
 interface ListingResponse {
@@ -22,6 +22,10 @@ export async function POST(request: Request) {
       } as ListingResponse, { status: 400 });
     }
 
+    // Normalize domain to lowercase for consistent handling
+    const normalizedDomain = domain.toLowerCase();
+    console.log(`Processing Sedo listing request for: ${normalizedDomain}`);
+
     // Get Sedo credentials from environment variables
     const sedoUsername = process.env.SEDO_USERNAME;
     const sedoPassword = process.env.SEDO_PASSWORD;
@@ -29,14 +33,17 @@ export async function POST(request: Request) {
     if (!sedoUsername || !sedoPassword) {
       console.log('Using simulated Sedo listing as credentials are not set');
       
-      // Return a success response even without API credentials
-      // This helps with development/testing
+      // For development without actual Sedo credentials
+      // Return a success response to simulate API behavior
       
       // Update domain status in database
       const { error } = await supabase
         .from('domains')
-        .update({ sedo_listed: true })
-        .eq('domain', domain);
+        .update({ 
+          sedo_listed: true,
+          nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com' 
+        })
+        .eq('domain', normalizedDomain);
         
       if (error) {
         console.error('Database update error:', error);
@@ -46,41 +53,54 @@ export async function POST(request: Request) {
         } as ListingResponse, { status: 500 });
       }
       
+      console.log(`Simulation successful for ${normalizedDomain}. Nameservers set to ns1.sedoparking.com, ns2.sedoparking.com`);
+      
       return NextResponse.json({ 
         success: true,
-        message: `Domain "${domain}" successfully listed on Sedo! (simulated)`,
+        message: `Domain "${normalizedDomain}" successfully listed on Sedo! (simulated)`,
         nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com',
-        domain
+        domain: normalizedDomain
       } as ListingResponse);
     }
     
+    console.log(`Calling Sedo API to list domain: ${normalizedDomain}`);
+    
     // Call the Sedo API integration function
-    const result = await listDomainOnSedo(domain, {
+    const result = await listDomainOnSedo(normalizedDomain, {
       email: sedoUsername, // Actually username
       password: sedoPassword,
     });
+    
+    console.log(`Sedo API result for ${normalizedDomain}:`, result);
     
     if (result.success) {
       // Update domain status in database
       const { error } = await supabase
         .from('domains')
-        .update({ sedo_listed: true })
-        .eq('domain', domain);
+        .update({ 
+          sedo_listed: true,
+          nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
+        })
+        .eq('domain', normalizedDomain);
         
       if (error) {
+        console.error(`Database update error for ${normalizedDomain}:`, error);
         return NextResponse.json({ 
           success: false,
           error: 'Domain listed on Sedo but failed to update database'
         } as ListingResponse, { status: 500 });
       }
       
+      console.log(`Successfully listed ${normalizedDomain} on Sedo and updated database`);
+      
       return NextResponse.json({ 
         success: true,
-        message: `Domain "${domain}" successfully listed on Sedo!`,
+        message: `Domain "${normalizedDomain}" successfully listed on Sedo!`,
         nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com',
-        domain
+        domain: normalizedDomain
       } as ListingResponse);
     } else {
+      console.error(`Sedo API listing failed for ${normalizedDomain}:`, result.message);
       return NextResponse.json({ 
         success: false,
         error: result.message || 'Failed to list domain on Sedo' 

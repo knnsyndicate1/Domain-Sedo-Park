@@ -94,16 +94,96 @@ export default function SearchDomainClient() {
       return;
     }
     setSearchLoading(true);
+    
+    // Normalize search text to lowercase for consistent matching
+    const normalizedSearchText = searchText.toLowerCase().trim();
+    console.log(`Searching for domains with keyword: "${normalizedSearchText}"`);
+    
     try {
+      // First try to load domains from localStorage for faster results
+      let localResults: any[] = [];
+      
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const savedDomainsStr = localStorage.getItem('listed_domains');
+        if (savedDomainsStr) {
+          try {
+            const savedDomains = JSON.parse(savedDomainsStr);
+            console.log(`Found ${savedDomains.length} domains in localStorage, checking for matches`);
+            
+            if (Array.isArray(savedDomains)) {
+              // Filter domains that match the search text
+              localResults = savedDomains.filter(domain => {
+                const domainLower = domain.domain.toLowerCase();
+                
+                // Check for direct match
+                if (domainLower === normalizedSearchText) return true;
+                
+                // Check for domain containing the keyword
+                if (domainLower.includes(normalizedSearchText)) return true;
+                
+                // Check domain name without extension
+                const domainBase = domainLower.split('.')[0];
+                if (domainBase === normalizedSearchText) return true;
+                
+                return false;
+              });
+              
+              console.log(`Found ${localResults.length} matching domains in localStorage`);
+            }
+          } catch (e) {
+            console.error('Error parsing localStorage data:', e);
+          }
+        }
+      }
+      
+      // Call the API to get additional results
       const res = await fetch('/api/sedo/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword: searchText }),
+        body: JSON.stringify({ keyword: normalizedSearchText }),
       });
+      
       const data = await res.json();
-      if (data.success && data.data && Array.isArray(data.data) && data.data.length > 0) {
-        setSearchResults(data.data);
-        const formattedOptions = data.data.map((domain: any) => ({
+      console.log('API search response:', data);
+      
+      // Combine API results with local results
+      let allResults: any[] = [];
+      
+      if (data.success && data.data && Array.isArray(data.data)) {
+        // Convert all domain names to lowercase for consistency
+        allResults = data.data.map((item: any) => ({
+          ...item,
+          domain: item.domain.toLowerCase()
+        }));
+        
+        console.log(`Found ${allResults.length} domains from API`);
+        
+        // Add local results that aren't already in the API results
+        if (localResults.length > 0) {
+          const existingDomains = new Set(allResults.map(item => item.domain.toLowerCase()));
+          
+          localResults.forEach(localItem => {
+            const normalizedDomain = localItem.domain.toLowerCase();
+            if (!existingDomains.has(normalizedDomain)) {
+              console.log(`Adding local domain to results: ${normalizedDomain}`);
+              allResults.push({
+                ...localItem,
+                domain: normalizedDomain
+              });
+            }
+          });
+        }
+      } else {
+        // Use only local results if API didn't return any
+        allResults = localResults;
+      }
+      
+      console.log(`Final combined results: ${allResults.length} domains`);
+      
+      // Update the state with combined results
+      if (allResults.length > 0) {
+        setSearchResults(allResults);
+        const formattedOptions = allResults.map((domain: any) => ({
           value: domain.domain,
           label: (
             <div className="flex items-center justify-between">
@@ -113,6 +193,12 @@ export default function SearchDomainClient() {
                   <Tag color="green" className="ml-2 rounded-full px-2">
                     <DollarOutlined className="mr-1" />
                     {domain.price ? formatCurrency(domain.price, domain.currency || 1) : "Listed"}
+                  </Tag>
+                )}
+                {domain.forsale !== 1 && (
+                  <Tag color="blue" className="ml-2 rounded-full px-2">
+                    <GlobalOutlined className="mr-1" />
+                    Parked
                   </Tag>
                 )}
               </div>
@@ -128,15 +214,7 @@ export default function SearchDomainClient() {
       console.error('Search error:', error);
       setSearchResults([]);
       setOptions([]);
-      message.error({
-        content: (
-          <div className="flex items-center">
-            <CloseCircleOutlined className="text-red-500 mr-2" />
-            <span>Error searching for domains</span>
-          </div>
-        ),
-        duration: 3
-      });
+      message.error('Error searching for domains');
     } finally {
       setSearchLoading(false);
     }

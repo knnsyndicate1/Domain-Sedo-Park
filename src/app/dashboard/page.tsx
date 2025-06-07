@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, Button, message, Form, Input, List, Tag, Alert, Empty, Typography, Avatar, Spin } from 'antd'
+import { Card, Button, message, Form, Input, List, Tag, Alert, Empty, Typography, Avatar, Spin, Row, Col } from 'antd'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Domain } from '@/lib/types'
@@ -15,7 +15,8 @@ import {
   InfoCircleOutlined,
   CloseCircleOutlined,
   SyncOutlined,
-  UserOutlined
+  UserOutlined,
+  WarningOutlined
 } from '@ant-design/icons'
 
 const { Title, Text } = Typography
@@ -185,38 +186,34 @@ export default function DashboardPage() {
     }
   }
 
-  // Validate TLD
+  // Validate TLD - strict enforcement
   const isValidTLD = (domain: string) => {
-    return domain.endsWith('.shop') || domain.endsWith('.click')
+    const lowercaseDomain = domain.toLowerCase().trim();
+    return lowercaseDomain.endsWith('.shop') || lowercaseDomain.endsWith('.click');
   }
 
-  // Real price check using Namecheap API
+  // Real price check using Namecheap API - updated for better reliability
   const checkPrice = async (domain: string) => {
-    setPriceLoading(true)
-    setError(null)
-    setPrice(null)
-    setDomainAvailable(null)
-    setShowPrice(false) // Don't show price section until we're certain
+    setPriceLoading(true);
+    setError(null);
+    setPrice(null);
+    setDomainAvailable(null);
+    setShowPrice(false); // Don't show price section until we're certain
     
     // Normalize domain for consistent checks (lowercase and trim)
     const normalizedDomain = domain.toLowerCase().trim();
     
+    if (!isValidTLD(normalizedDomain)) {
+      message.error('Only .shop or .click domains allowed');
+      setPriceLoading(false);
+      return;
+    }
+    
     try {
       // Check for internet connection first
       if (!navigator.onLine) {
-        setError('Unable to check price: You are offline')
-        message.error({
-          content: (
-            <div className="flex items-center">
-              <CloseCircleOutlined className="text-red-500 mr-2" />
-              <div>
-                <div className="font-bold">Network Error</div>
-                <div className="text-sm">Please check your internet connection and try again.</div>
-              </div>
-            </div>
-          ),
-          duration: 5
-        });
+        setError('Unable to check price: You are offline');
+        message.error('Network error. Please check your connection and try again.');
         setPriceLoading(false);
         return;
       }
@@ -250,22 +247,9 @@ export default function DashboardPage() {
           setDomainAvailable(false)
           setShowPrice(true) // Show the error message
           
-          message.error({
-            content: (
-              <div className="flex items-center">
-                <CloseCircleOutlined className="text-red-500 mr-2" />
-                <div>
-                  <div className="font-bold">Domain Already Registered</div>
-                  <div className="text-sm">
-                    {ownedByUser ? 
+          message.error(ownedByUser ? 
                       "You've already registered this domain in your account." : 
-                      "This domain is already registered in our system."}
-                  </div>
-                </div>
-              </div>
-            ),
-            duration: 5
-          });
+            "This domain is already registered in our system.");
           setPriceLoading(false);
           return;
         }
@@ -289,6 +273,7 @@ export default function DashboardPage() {
         clearTimeout(timeoutId);
         
         if (!res.ok) {
+          console.error(`Price API returned status ${res.status}`);
           throw new Error(`Price API returned status ${res.status}`);
         }
         
@@ -297,212 +282,140 @@ export default function DashboardPage() {
         
         // If price API returns an error or domain is not available
         if (data.error || !data.available) {
-          setError(data.error || 'Domain is not available')
-          setPrice(null)
-          setDomainAvailable(false)
-          setShowPrice(true)
+          setError(data.error || 'Domain is not available');
+          setPrice(null);
+          setDomainAvailable(false);
+          setShowPrice(true);
           
-          message.error({
-            content: (
-              <div className="flex items-center">
-                <CloseCircleOutlined className="text-red-500 mr-2" />
-                <div>
-                  <div className="font-bold">Domain Not Available</div>
-                  <div className="text-sm">This domain is already registered and not available.</div>
-                </div>
-              </div>
-            ),
-            duration: 5
-          });
+          message.error(data.error || "This domain is already registered and not available.");
         } else {
           // Domain is available and we have a price!
-          console.log(`SUCCESS: Domain ${normalizedDomain} is available for $${data.price}`);
-          setPrice(data.price)
-          setDomainAvailable(true)
-          setShowPrice(true)
-          setError(null)
+          const domainPrice = data.price || 0; // Default to 0 if price is undefined
+          console.log(`SUCCESS: Domain ${normalizedDomain} is available for $${domainPrice}`);
+          setPrice(domainPrice);
+          setDomainAvailable(true);
+          setShowPrice(true);
+          setError(null);
           
-          // Show success message for available domains
-          message.success({
-            content: (
-              <div className="flex items-center">
-                <CheckCircleOutlined className="text-green-500 mr-2" />
-                <div>
-                  <div className="font-bold">Domain Available!</div>
-                  <div className="text-sm">
-                    {normalizedDomain} is available for ${data.price}
-                  </div>
-                </div>
-              </div>
-            ),
-            duration: 5
-          });
+          // Check if the price is under $2
+          if (domainPrice < 2) {
+            // Show success message for available domains under $2
+            message.success(`${normalizedDomain} is available for $${domainPrice} - You can register this domain!`);
+          } else {
+            // Show warning message for domains over $2
+            message.warning(`Domain ${normalizedDomain} costs $${domainPrice} - Only domains under $2 can be registered.`);
+            setError(`This domain costs $${domainPrice}. Only domains under $2 can be registered.`);
+          }
         }
       } catch (error: any) {
         console.error('Price check error:', error);
         
         // Show appropriate error message
-        setError('Failed to check price')
-        setPrice(null)
-        setDomainAvailable(null)
-        setShowPrice(true)
+        setError('Failed to check price');
+        setPrice(null);
+        setDomainAvailable(null);
+        setShowPrice(true);
         
         const isAbortError = error.name === 'AbortError';
-        const isNetworkError = !navigator.onLine || 
-          (typeof error.message === 'string' && (
-            error.message.includes('network') || 
-            error.message.includes('fetch') || 
-            error.message.includes('connect')
-          ));
-        
-        message.error({
-          content: (
-            <div className="flex items-center">
-              <CloseCircleOutlined className="text-red-500 mr-2" />
-              <div>
-                <div className="font-bold">{isAbortError ? 'Timeout Error' : 'Connection Error'}</div>
-                <div className="text-sm">{isAbortError ? 
+        message.error(isAbortError ? 
                   'Request timed out. Server may be busy.' : 
-                  'Unable to connect to domain registration service.'}</div>
-              </div>
-            </div>
-          ),
-          duration: 5
-        });
+          'Unable to connect to domain registration service.');
       }
     } catch (error: any) {
       console.error('Overall domain check error:', error);
-      setError('Failed to check domain availability')
-      setPrice(null)
-      setDomainAvailable(null)
-      setShowPrice(true)
+      setError('Failed to check domain availability');
+      setPrice(null);
+      setDomainAvailable(null);
+      setShowPrice(true);
       
-      message.error({
-        content: (
-          <div className="flex items-center">
-            <CloseCircleOutlined className="text-red-500 mr-2" />
-            <div>
-              <div className="font-bold">Error</div>
-              <div className="text-sm">Failed to check domain availability. Please try again.</div>
-            </div>
-          </div>
-        ),
-        duration: 5
-      });
+      message.error('Failed to check domain availability. Please try again.');
     } finally {
-      setPriceLoading(false)
+      setPriceLoading(false);
     }
   }
 
-  // Show registration modal
+  // Show registration modal with added price check
   const showRegistrationForm = () => {
-    const domain = form.getFieldValue('domain')
+    const domain = form.getFieldValue('domain');
     
-    // Check for internet connection first
-    if (!navigator.onLine) {
-      message.error({
-        content: (
-          <div className="flex items-center">
-            <CloseCircleOutlined className="text-red-500 mr-2" />
-            <div>
-              <div className="font-bold">Network Error</div>
-              <div className="text-sm">Please check your internet connection and try again.</div>
-            </div>
-          </div>
-        ),
-        duration: 5,
-      });
+    if (!domain || !domain.trim()) {
+      message.error('Please enter a domain name');
       return;
     }
     
-    setDomainToRegister(domain)
+    // Check for internet connection first
+    if (!navigator.onLine) {
+      message.error('Network error. Please check your connection and try again.');
+      return;
+    }
     
-    console.log('Starting domain registration for:', domain)
-    // Directly register with fixed company details
-    onRegister()
+    // Normalize domain to lowercase for consistent checks
+    const normalizedDomain = domain.toLowerCase().trim();
+    
+    // Validate TLD before proceeding
+    if (!isValidTLD(normalizedDomain)) {
+      message.error('Only .shop or .click domains are allowed');
+      return;
+  }
+
+    // Make sure the price has been checked before registration
+    if (price === null) {
+      // Check price first if not already checked
+      checkPrice(normalizedDomain);
+      message.info('Please check domain availability and price first');
+      return;
+    }
+    
+    // Ensure domain is available
+    if (!domainAvailable) {
+      message.error('This domain is not available for registration');
+      return;
+    }
+    
+    // Verify price is under $2
+    if (price >= 2) {
+      message.error(`Domain price $${price} exceeds the $2 limit. Please choose another domain.`);
+      return;
+    }
+    
+    console.log(`Starting domain registration for: ${normalizedDomain} at price: $${price}`);
+    
+    // Call registration with domain value
+    onRegister({ domain: normalizedDomain });
   }
 
   // Register domain using Namecheap API and update Supabase
-  const onRegister = async () => {
-    if (!domainToRegister) {
-      console.error('No domain to register');
-      return;
-    }
-    
-    // Normalize domain to lowercase for consistent comparison
-    const normalizedDomain = domainToRegister.toLowerCase().trim();
-    
-    console.log(`Registering domain: ${normalizedDomain}`);
+  const onRegister = async (values: { domain: string }) => {
     setRegistering(true);
-    setError(null);
-    
-    // Check for internet connection first
-    if (!navigator.onLine) {
-      message.error({
-        content: (
-          <div className="flex items-center">
-            <CloseCircleOutlined className="text-red-500 mr-2" />
-            <div>
-              <div className="font-bold">Network Error</div>
-              <div className="text-sm">Please check your internet connection and try again.</div>
-            </div>
-          </div>
-        ),
-        duration: 5,
-      });
-      setRegistering(false);
-      return;
-    }
     
     try {
-      // Double-check if domain exists across ALL users (system-wide)
-      const { data: existingSystemDomain, error: systemSearchError } = await supabase
-        .from('domains')
-        .select('id, domain, status, user_id')
-        .eq('domain', normalizedDomain);
+      const normalizedDomain = values.domain.toLowerCase().trim();
       
-      if (existingSystemDomain && existingSystemDomain.length > 0) {
-        // Domain exists in the system
-        const isOwnedByCurrentUser = existingSystemDomain.some(d => d.user_id === userId);
-        
-        if (isOwnedByCurrentUser) {
-          // Domain belongs to current user
-          const existingDomain = existingSystemDomain.find(d => d.user_id === userId);
-          if (existingDomain && existingDomain.status === 'registered') {
-            // Domain already registered by current user, show auto-list button
-            message.info({
-              content: (
-                <div className="flex flex-col">
-                  <div className="flex items-center mb-2">
-                    <InfoCircleOutlined className="text-blue-500 mr-2" />
-                    <span>You already own this domain. You can list it on Sedo.</span>
-                  </div>
-                </div>
-              ),
-              duration: 5,
-              key: `domain-exists-${existingDomain.id}`
-            });
+      // Double-check TLD validity
+      if (!isValidTLD(normalizedDomain)) {
+        message.error('Only .shop or .click domains are allowed');
             setRegistering(false);
             return;
           }
-        } else {
-          // Domain belongs to another user
-          message.error({
-            content: (
-              <div className="flex items-center">
-                <CloseCircleOutlined className="text-red-500 mr-2" />
-                <div>
-                  <div className="font-bold">Domain Already Registered</div>
-                  <div className="text-sm">This domain is already registered in our system.</div>
-                </div>
-              </div>
-            ),
-            duration: 5
-          });
+
+      // Double-check price before registering
+      if (price === null || price >= 2) {
+        message.error(`Domain price ${price === null ? 'is unknown' : `$${price} exceeds the $2 limit`}`);
           setRegistering(false);
           return;
         }
+
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        message.error('Authentication error. Please log in again.');
+        router.push('/login');
+        return;
       }
+      
+      const userId = user.id;
+      console.log(`User ID for registration: ${userId}`);
       
       // Check if domain already exists in user's domains to prevent duplicates
       const { data: existingDomains, error: checkError } = await supabase
@@ -517,229 +430,128 @@ export default function DashboardPage() {
         const existingDomain = existingDomains[0];
         if (existingDomain.status === 'registered') {
           // Domain already registered, just show the Auto-List button
-          message.info({
-            content: (
-              <div className="flex flex-col">
-                <div className="flex items-center mb-2">
-                  <InfoCircleOutlined className="text-blue-500 mr-2" />
-                  <span>Domain <strong>{normalizedDomain}</strong> is already registered!</span>
-                </div>
-                <div className="mt-3 flex justify-center">
-                  <Button 
-                    type="primary"
-                    onClick={() => {
-                      message.destroy(); // Close this message
-                      handleAutoListOnSedo(normalizedDomain, existingDomain.id);
-                    }}
-                    icon={<CloudUploadOutlined />}
-                    size="large"
-                    className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600"
-                    style={{ fontWeight: 600, padding: '0 20px', height: '40px' }}
-                  >
-                    Auto-Sedo Listing
-                  </Button>
-                </div>
-              </div>
-            ),
-            duration: 0, // Don't auto-close
-            key: `auto-list-${existingDomain.id}`,
-          });
+          message.info(`Domain ${normalizedDomain} is already registered!`);
           setRegistering(false);
           return;
         }
       }
       
-      // Insert as pending first
-      console.log('Inserting domain into database with pending status...');
-      const { data: inserted, error: insertError } = await supabase.from('domains').insert([
-        {
-          user_id: userId,
-          domain: normalizedDomain,
-          status: 'pending',
-          sedo_listed: false,
-        },
-      ]).select();
+      console.log(`Calling registration API for: ${normalizedDomain}`);
       
-      if (insertError) {
-        console.error('Error inserting domain:', insertError);
-        throw insertError;
-      }
-      
-      console.log('Domain inserted successfully:', inserted);
-      const newDomain = (inserted as Domain[])[0];
-      setDomains([newDomain, ...domains]);
-
-      // Call Namecheap registration API with fixed company details
-      console.log('Calling Namecheap registration API...');
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort('Request timeout'), 30000);
-        
+      // Register the domain with the API
         const res = await fetch('/api/namecheap/register', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
           body: JSON.stringify({ domain: normalizedDomain }),
-          signal: controller.signal
         });
         
-        clearTimeout(timeoutId);
-        
-        if (!res.ok) {
-          const errorText = await res.text();
-          console.error(`API Error Response (${res.status}):`, errorText);
-          
-          // Add specific handling for connection errors
-          if (res.status === 401) {
-            throw new Error('Connection error: API authentication failed. Please try again later.');
-          } else {
-            throw new Error(`Registration API returned status ${res.status}`);
-          }
-        }
-        
-        const regData = await res.json();
-        console.log('Registration data:', regData);
-        
-        let newStatus = regData.status;
-        
-        // Update status and nameservers in Supabase
-        console.log('Updating domain status in database...');
-        await supabase.from('domains').update({ 
-          status: newStatus,
-          nameservers: regData.nameservers || ''
-        }).eq('id', newDomain.id);
-        
-        // Update domains in state
-        setDomains(prevDomains => prevDomains.map(d => 
-          d.id === newDomain.id 
-            ? { 
-                ...d, 
-                status: newStatus,
-                nameservers: regData.nameservers || '' 
-              } 
-            : d
-        ));
-        
-        if (regData.status === 'registered') {
-          console.log('Domain registration successful');
-          message.success({
-            content: (
-              <div className="flex items-center">
-                <CheckCircleOutlined className="text-green-500 mr-2" />
-                <span>Domain <strong>{normalizedDomain}</strong> registered successfully!</span>
-              </div>
-            ),
-            duration: 5,
-            key: `registered-${newDomain.id}`,
-          });
-          
-          fetchDomains(); // Refresh the domains list
-      } else if (regData.status === 'failed') {
-          // Display detailed error message
-          console.error('Registration failed:', regData.error);
-          const errorMessage = regData.error || 'Registration failed.';
-          setError(errorMessage);
-          
-          // Show error in a more prominent way
-          message.error({
-            content: (
-              <div className="flex items-center">
-                <CloseCircleOutlined className="text-red-500 mr-2" />
-                <div>
-                  <div className="font-bold">Registration Failed</div>
-                  <div className="text-sm">{errorMessage}</div>
-                </div>
-              </div>
-            ),
-            duration: 8, // Show longer so user can read it
-          });
-          
-          // Remove the domain from the database if it failed to register
-          console.log('Removing failed domain from database...');
-          await supabase.from('domains').delete().eq('id', newDomain.id);
-          
-          // Update the UI state to remove the failed domain
-          setDomains(prevDomains => prevDomains.filter(d => d.id !== newDomain.id));
-      } else {
-          console.log('Registration status:', regData.status);
-          message.info({
-            content: 'Registration submitted, check status later.',
-            icon: <LoadingOutlined />,
-          });
-        }
-      } catch (fetchError: any) {
-        console.error('Fetch error during registration:', fetchError);
-        
-        const isAbortError = fetchError.name === 'AbortError';
-        const isNetworkError = !navigator.onLine || fetchError.message?.includes('network') || 
-          fetchError.message?.includes('fetch') || fetchError.message?.includes('connect') || 
-          fetchError.message?.includes('Connection error');
-        
-        const errorTitle = isAbortError ? "Registration Timeout" : 
-                          isNetworkError ? "Connection Error" : "Registration Error";
-        
-        const errorDescription = isAbortError ? "Registration request took too long. The server might be busy." : 
-                                isNetworkError ? "Failed to connect to registration service" : 
-                                fetchError.message || "Failed to connect to registration service";
-        
-        // Show error with retry button
-        message.error({
-          content: (
-            <div className="flex flex-col">
-              <div className="flex items-center">
-                <CloseCircleOutlined className="text-red-500 mr-2" />
-                <div>
-                  <div className="font-bold">{errorTitle}</div>
-                  <div className="text-sm">{errorDescription}</div>
-                </div>
-              </div>
-              <div className="mt-3 flex justify-center">
-                <Button
-                  type="primary"
-                  icon={<SyncOutlined />}
-                  onClick={() => {
-                    message.destroy(`reg-error-${normalizedDomain}`);
-                    setTimeout(() => onRegister(), 500);
-                  }}
-                >
-                  Retry Registration
-                </Button>
-              </div>
-            </div>
-          ),
-          duration: 0,  // Keep showing until user takes action
-          key: `reg-error-${normalizedDomain}`,
-        });
-        
-        // Do NOT remove the domain from the database yet to allow for retry
-        // Just update its status to indicate error
-        await supabase.from('domains').update({ 
-          status: 'error',
-          nameservers: 'Registration error: connection failed'
-        }).eq('id', newDomain.id);
-        
-        setRegistering(false);
-        return;
-      }
+      const data = await res.json();
+      console.log('Registration API response:', data);
       
+      if (res.ok && data.status === 'registered') {
+        // Successful registration
+        try {
+          // Prepare domain data
+          const domainData = {
+            user_id: userId,
+            domain: normalizedDomain,
+            status: 'registered',
+            registration_date: new Date().toISOString(),
+            expiry_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString(),
+            nameservers: data.nameservers || 'ns1.sedoparking.com, ns2.sedoparking.com',
+            sedo_listed: false // Will be set to true after listing on Sedo
+          };
+          
+          console.log('Attempting to insert domain with data:', domainData);
+          
+          // Save to database with nameservers
+          const { data: newDomain, error: insertError } = await supabase
+            .from('domains')
+            .insert(domainData)
+            .select();
+            
+          if (insertError) {
+            console.error('Error inserting domain:', insertError);
+            // Try to get more details about the error
+            console.error('Error code:', insertError.code);
+            console.error('Error message:', insertError.message);
+            console.error('Error details:', insertError.details);
+          
+            // Check for specific error types and handle accordingly
+            if (insertError.code === '23505') {
+              // Unique constraint violation (domain already exists)
+              message.warning('This domain is already in your account. Refreshing your domains list.');
+              fetchDomains(); // Refresh the domain list
+            } else {
+              // Try a simpler insert with only the essential fields
+              console.log('Trying simplified domain insertion...');
+              const { error: simpleInsertError } = await supabase
+                .from('domains')
+                .insert({
+                  user_id: userId,
+                  domain: normalizedDomain,
+                  status: 'registered'
+                });
+              
+              if (simpleInsertError) {
+                console.error('Simplified insert also failed:', simpleInsertError);
+                message.error('Domain registered, but failed to save to your account. Please contact support.');
+      } else {
+                message.success(`${normalizedDomain} registered! (Basic info saved)`);
+                fetchDomains();
+              }
+            }
+          } else {
+            // Show success message with nameserver info
+            message.success(
+              `${normalizedDomain} successfully registered! Nameservers set to: ns1.sedoparking.com, ns2.sedoparking.com`
+            );
+        
+            // Refresh domain list
+            fetchDomains();
+            
+            // Reset form
       form.resetFields();
-      setPrice(null);
       setDomainAvailable(null);
       setShowPrice(false);
-    } catch (err: any) {
-      console.error('Registration error:', err);
-      setError(err.message);
-      message.error({
-        content: (
-          <div className="flex items-center">
-            <CloseCircleOutlined className="text-red-500 mr-2" />
-            <div>
-              <div className="font-bold">Registration Error</div>
-              <div className="text-sm">{err.message}</div>
-            </div>
-          </div>
-        ),
-        duration: 5,
-      });
+            setPrice(null);
+          }
+        } catch (dbError) {
+          console.error('Error saving to database:', dbError);
+          
+          // Try one more time with minimal data
+          try {
+            const { error: finalAttemptError } = await supabase
+              .from('domains')
+              .insert({
+                user_id: userId,
+                domain: normalizedDomain,
+                status: 'registered'
+              });
+              
+            if (finalAttemptError) {
+              console.error('Final attempt failed:', finalAttemptError);
+              message.error('Domain registered, but failed to save to your account. Please check your domain list later.');
+            } else {
+              message.success(`${normalizedDomain} registered successfully! (minimal info saved)`);
+              fetchDomains();
+            }
+          } catch (finalError) {
+            console.error('All database save attempts failed:', finalError);
+            message.error('Domain registered, but failed to save to your account.');
+          }
+        }
+      } else {
+        // API returned an error
+        const errorMessage = data.error || 'Failed to register domain';
+        message.error(errorMessage);
+      }
+    } catch (error: any) {
+      // Network or other errors
+      console.error('Registration error:', error);
+      message.error('Connection error. Please try again.');
     } finally {
       setRegistering(false);
     }
@@ -751,16 +563,9 @@ export default function DashboardPage() {
     setAutoListingInProgress(true);
     
     try {
-      // Show a more elegant loading message with the domain
+      // Show a clean loading message
       message.loading({
-        content: (
-          <div className="flex items-center">
-            <div className="mr-3">
-              <div className="w-3 h-3 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            </div>
-            <span>Listing <strong>{domain}</strong> on Sedo...</span>
-          </div>
-        ),
+        content: `Listing ${domain} on Sedo...`,
         key: domain,
         duration: 0 // Don't auto-close the loading message
       });
@@ -783,6 +588,7 @@ export default function DashboardPage() {
       
       if (data.success) {
         // Update the database
+        console.log(`Updating database for ${domain} with Sedo nameservers`);
         const { error } = await supabase
           .from('domains')
           .update({ 
@@ -793,43 +599,63 @@ export default function DashboardPage() {
           
         if (error) {
           console.error(`Failed to update database for ${domain}:`, error);
-          message.error({ content: 'Failed to update database', key: domain });
+          message.error({ 
+            content: 'Failed to update database', 
+            key: domain,
+            duration: 6
+          });
         } else {
+          console.log(`Database updated successfully for ${domain} - marked as Sedo listed with nameservers`);
+          
           // Store domain in localStorage for simulating listed domains in searches
           try {
             if (typeof window !== 'undefined') {
               // Add to localStorage for search simulation
               const domainData = {
-                domain: domain,
-                price: 0, // Price set to 0 as not for sale
+                domain: domain?.toLowerCase() || '', // Use optional chaining and provide default value
+                price: 0, // Price set to 0 as not for sale by default
                 currency: 1, // USD
-                forsale: 0, // Not for sale (set to 0)
+                forsale: 0, // Not for sale by default (set to 0)
                 fixedprice: 0, // Not fixed price
                 sedo_listed: true
               };
               
+              console.log(`Preparing to save domain to localStorage: ${domain}`);
+              
               // Get existing domains or initialize empty array
               const existingDomainsString = localStorage.getItem('listed_domains');
-              let existingDomains = [];
+              let existingDomains: any[] = [];
               
               if (existingDomainsString) {
                 try {
                   existingDomains = JSON.parse(existingDomainsString);
+                  console.log('Current domains in localStorage:', existingDomains);
+                  
                   if (!Array.isArray(existingDomains)) {
+                    console.log('localStorage data is not an array, resetting');
                     existingDomains = [];
                   }
                 } catch (e) {
                   console.error('Error parsing localStorage domains:', e);
                   existingDomains = [];
                 }
+              } else {
+                console.log('No domains in localStorage yet, creating new array');
               }
               
-              // Add new domain if it doesn't exist already
-              if (!existingDomains.some(d => d.domain === domain)) {
+              // Remove any existing entries for this domain (to avoid duplicates)
+              existingDomains = existingDomains.filter(d => 
+                d.domain?.toLowerCase() !== domain?.toLowerCase()
+              );
+              
+              // Add the new domain
                 existingDomains.push(domainData);
+              
+              // Save back to localStorage
                 localStorage.setItem('listed_domains', JSON.stringify(existingDomains));
-                console.log(`Added domain ${domain} to localStorage for search simulation`);
-              }
+              console.log(`Updated localStorage - added domain ${domain}`);
+              console.log('Total domains in localStorage now:', existingDomains.length);
+              console.log('Domains in localStorage:', existingDomains.map(d => d.domain).join(', '));
             }
           } catch (e) {
             console.error('Error saving domain to localStorage:', e);
@@ -838,7 +664,7 @@ export default function DashboardPage() {
           // Immediately remove domain from the UI
           setDomains(prevDomains => prevDomains.filter(d => d.id !== domainId));
           
-          // Show simple success message that auto-dismisses after a few seconds
+          // Show clean success message for 6 seconds
           message.success({ 
             content: (
               <div className="flex items-center">
@@ -846,58 +672,25 @@ export default function DashboardPage() {
                 <span><strong>{domain}</strong> successfully listed on Sedo!</span>
               </div>
             ),
-            duration: 6, // Auto-close after 6 seconds
+            duration: 6,
             key: domain
           });
-          
-          // DO NOT automatically redirect - let user explicitly click search button if desired
-          // This fixes the issue where domain disappears before user sees it's listed
         }
       } else {
         message.error({ 
-          content: (
-            <div className="flex items-center">
-              <CloseCircleOutlined className="text-red-500 mr-2" />
-              <div>
-                <div className="font-bold">Sedo Listing Failed</div>
-                <div className="text-sm">{data.error || "Could not list domain on Sedo. Please try again."}</div>
-              </div>
-            </div>
-          ), 
+          content: data.error || "Could not list domain on Sedo. Please try again.",
           key: domain,
-          duration: 5
+          duration: 6
         });
       }
     } catch (error: any) {
       console.error('Error listing domain on Sedo:', error);
       
-      // Show a retry option for connection errors
+      // Show a simple error message
       message.error({ 
-        content: (
-          <div className="flex flex-col">
-            <div className="flex items-center">
-              <CloseCircleOutlined className="text-red-500 mr-2" />
-              <div>
-                <div className="font-bold">Connection Error</div>
-                <div className="text-sm">Failed to connect to registration service</div>
-              </div>
-            </div>
-            <div className="mt-3 flex justify-center">
-              <Button
-                type="primary"
-                icon={<SyncOutlined />}
-                onClick={() => {
-                  message.destroy(domain);
-                  setTimeout(() => handleAutoListOnSedo(domain, domainId), 500);
-                }}
-              >
-                Retry Registration
-              </Button>
-            </div>
-          </div>
-        ), 
+        content: 'Connection error. Please try again.',
         key: domain,
-        duration: 0  // Don't auto-close so user can retry
+        duration: 6
       });
     } finally {
       setAutoListingInProgress(false);
@@ -919,53 +712,177 @@ export default function DashboardPage() {
     }
   }
 
-  // Add a function to immediately fix any domains with sedo nameservers by marking them as listed
-  const fixSedoListedDomains = async () => {
+  // Display nameserver status tag based on nameservers value
+  const getNameserverStatusTag = (nameservers: string | null | undefined) => {
+    if (!nameservers) return null;
+    
+    // Check if using Sedo nameservers
+    if (nameservers.includes('sedoparking.com')) {
+      return (
+        <Tag color="green" className="ml-2">
+          <CheckCircleOutlined /> Sedo Nameservers
+        </Tag>
+      );
+    }
+    
+    // Default nameservers
+    return (
+      <Tag color="orange" className="ml-2">
+        <InfoCircleOutlined /> Custom Nameservers
+      </Tag>
+    );
+  }
+
+  // Render the domain item in the list
+  const renderDomainItem = (item: Domain) => (
+    <List.Item className="p-4 border border-gray-100 rounded-xl mb-3 bg-white/90 hover:shadow-lg transition-shadow">
+      <div className="flex flex-col w-full">
+        <div className="flex items-center w-full">
+          <Avatar size={48} className="bg-gradient-to-tr from-blue-400 via-purple-400 to-pink-400 text-white font-bold flex-shrink-0">
+            {item.domain.charAt(0).toUpperCase()}
+          </Avatar>
+          <div className="ml-4 flex-grow">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">
+                  {item.domain}
+                  {getNameserverStatusTag(item.nameservers)}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {item.registration_date ? (
+                    `Registered: ${new Date(item.registration_date).toLocaleDateString()}`
+                  ) : (
+                    'Recently registered'
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <Row className="mt-4">
+              <Col span={24} className="flex justify-end space-x-2">
+                {/* Manual fix button for domains that are actually already listed but not marked correctly */}
+                {!item.sedo_listed && item.nameservers && item.nameservers.includes('sedoparking.com') && (
+                  <Button
+                    type="default"
+                    onClick={() => fixDomainListingStatus(item.domain, item.id)}
+                    icon={<CheckCircleOutlined />}
+                    className="bg-green-50 text-green-600 hover:bg-green-100 border-green-200"
+                  >
+                    Fix Status
+                  </Button>
+                )}
+                <Button
+                  type="primary"
+                  onClick={() => handleAutoListOnSedo(item.domain, item.id)}
+                  icon={<CloudUploadOutlined />}
+                  loading={autoListingInProgress && selectedDomain === item.domain}
+                  className="bg-blue-500 hover:bg-blue-600"
+                  disabled={!!(autoListingInProgress || (item.nameservers && item.nameservers.includes('sedoparking.com')))}
+                >
+                  {(item.nameservers && item.nameservers.includes('sedoparking.com')) ? 'Already Using Sedo NS' : 'Auto-Sedo Listing'}
+                </Button>
+              </Col>
+            </Row>
+          </div>
+        </div>
+        {item.nameservers && (
+          <div className="mt-2 text-sm text-gray-500 p-2 bg-gray-50 rounded border border-gray-100">
+            <strong>Nameservers:</strong> {item.nameservers}
+          </div>
+        )}
+      </div>
+    </List.Item>
+  )
+
+  // Function to fix a domain's listing status when it has Sedo nameservers
+  // but isn't marked as listed in the database
+  const fixDomainListingStatus = async (domain: string, domainId: string) => {
     try {
-      // Find all domains with Sedo nameservers but not marked as listed
-      const { data, error } = await supabase
+      message.loading({
+        content: `Fixing listing status for ${domain}...`,
+        key: domain,
+        duration: 0
+      });
+      
+      console.log(`Fixing listing status for domain: ${domain}`);
+      
+      // Update the domain to mark it as Sedo listed
+      const { error } = await supabase
         .from('domains')
-        .select('*')
-        .eq('status', 'registered')
-        .eq('sedo_listed', false)
-        .or('nameservers.ilike.%sedoparking.com%,nameservers.ilike.%sedo%');
+        .update({ 
+          sedo_listed: true,
+          nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com' 
+        })
+        .eq('id', domainId);
       
       if (error) {
-        console.error('Error finding domains to fix:', error);
+        console.error(`Error updating domain ${domain}:`, error);
+        message.error({
+          content: 'Failed to update domain status',
+          key: domain,
+          duration: 4
+        });
         return;
       }
       
-      console.log(`Found ${data?.length || 0} domains with Sedo nameservers that need fixing`);
-      
-      // Update each domain to be marked as listed
-      if (data && data.length > 0) {
-        for (const domain of data) {
-          const { error: updateError } = await supabase
-            .from('domains')
-            .update({ sedo_listed: true })
-            .eq('id', domain.id);
-            
-          if (updateError) {
-            console.error(`Error updating domain ${domain.domain}:`, updateError);
-          } else {
-            console.log(`Fixed domain ${domain.domain} to be marked as sedo_listed`);
+      // Add to localStorage for search simulation
+      try {
+        if (typeof window !== 'undefined') {
+          const domainData = {
+            domain: domain.toLowerCase(),
+            price: 0,
+            currency: 1,
+            forsale: 0,
+            fixedprice: 0,
+            sedo_listed: true
+          };
+          
+          const existingDomainsString = localStorage.getItem('listed_domains');
+          let existingDomains: any[] = [];
+          
+          if (existingDomainsString) {
+            try {
+              existingDomains = JSON.parse(existingDomainsString);
+              if (!Array.isArray(existingDomains)) {
+                existingDomains = [];
+              }
+            } catch (e) {
+              console.error('Error parsing localStorage domains:', e);
+              existingDomains = [];
+            }
           }
+          
+          // Remove any existing entries for this domain
+          existingDomains = existingDomains.filter(d => 
+            d.domain?.toLowerCase() !== domain.toLowerCase()
+          );
+          
+          // Add the domain
+          existingDomains.push(domainData);
+          localStorage.setItem('listed_domains', JSON.stringify(existingDomains));
         }
-        
-        // After fixing, refresh the domains list
-        fetchDomains();
+      } catch (e) {
+        console.error('Error saving domain to localStorage:', e);
       }
+      
+      message.success({
+        content: `Fixed ${domain} listing status!`,
+        key: domain,
+        duration: 4
+      });
+      
+      // Refresh domains list
+      fetchDomains();
+      
     } catch (err) {
-      console.error('Error fixing domains:', err);
+      console.error(`Error fixing domain status for ${domain}:`, err);
+      message.error({
+        content: 'Error fixing domain status',
+        key: domain,
+        duration: 4
+      });
     }
   };
-
-  // Call the fix function when the component mounts
-  useEffect(() => {
-    if (userId) {
-      fixSedoListedDomains();
-    }
-  }, [userId]);
 
   if (loading) {
     return <ModernLoader />
@@ -1024,7 +941,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Domain registration form */}
+          {/* Register Domain Form */}
           <Card className="rounded-2xl shadow-xl border-0 bg-white/70 backdrop-blur-md mb-8">
             <Title level={4} className="!mb-6 flex items-center text-gray-800 font-semibold">
               <PlusOutlined className="mr-2 text-blue-500" />
@@ -1033,50 +950,42 @@ export default function DashboardPage() {
           <Form
             form={form}
             layout="vertical"
+              className="mt-4"
             onFinish={showRegistrationForm}
             initialValues={{ domain: '' }}
           >
             <Form.Item
+                label={<span className="text-red-500 mr-1">*</span>}
               name="domain"
-                label={<span className="text-gray-700 font-medium">Domain Name</span>}
-              rules={[
-                { required: true, message: 'Please enter a domain name' },
-                {
-                  validator: (_, value) =>
-                    !value || isValidTLD(value)
-                      ? Promise.resolve()
-                      : Promise.reject('Only .shop or .click domains allowed'),
-                },
-              ]}
+                rules={[{ required: true, message: 'Please enter a domain name' }]}
+                labelCol={{ span: 24 }}
+                wrapperCol={{ span: 24 }}
+                className="mb-0"
             >
                 <Input
-                  placeholder="e.g. mybrand.shop"
+                  placeholder="Enter domain name (e.g., mydomain.shop)"
                   size="large"
                   className="rounded-lg shadow border-0 bg-white/80 focus:bg-white"
                   suffix={priceLoading ? <LoadingOutlined style={{ color: '#6366f1' }} /> : <SearchOutlined style={{ color: '#6366f1' }} />}
-                  style={{ fontWeight: 500 }}
                 />
             </Form.Item>
-              <div className="flex gap-3">
+              
+              <div className="flex justify-between mt-4">
               <Button
-                type="default"
-                onClick={() => {
-                  const domain = form.getFieldValue('domain')
-                  if (isValidTLD(domain)) checkPrice(domain)
-                  else setError('Only .shop or .click domains allowed')
-                }}
-                loading={priceLoading}
-                  className="bg-gradient-to-r from-blue-400 to-purple-400 border-0 shadow-md hover:from-blue-500 hover:to-purple-500 text-white"
-                  size="large"
-                  style={{ fontWeight: 500 }}
                   icon={<SearchOutlined />}
+                  onClick={() => checkPrice(form.getFieldValue('domain'))}
+                  disabled={priceLoading}
+                loading={priceLoading}
+                  className="mr-2"
+                  size="large"
               >
                 Check Price
               </Button>
+                
               <Button
                 type="primary"
                 htmlType="submit"
-                disabled={!price || price >= 2 || !domainAvailable}
+                  disabled={!price || price >= 2 || !domainAvailable || registering}
                   loading={registering}
                   className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600"
                   style={{ fontWeight: 600, letterSpacing: 1 }}
@@ -1091,15 +1000,15 @@ export default function DashboardPage() {
               <div className="h-auto mt-4">
                 {priceLoading && (
                   <div className="flex items-center bg-blue-50 text-blue-700 px-4 py-3 rounded-xl border border-blue-100 animate-fadeIn">
-                    <SearchLoader />
+                    <LoadingOutlined className="mr-2" />
                     <span className="ml-3 font-medium">Checking domain availability...</span>
                   </div>
                 )}
                 
                 {!priceLoading && showPrice && (
                   <div className="mt-4">
-                    <div className="mb-4">
                       {domainAvailable === true ? (
+                      price !== null && price < 2 ? (
                         <div className="rounded-md bg-green-50 p-4">
                           <div className="flex">
                             <div className="flex-shrink-0">
@@ -1107,14 +1016,31 @@ export default function DashboardPage() {
                             </div>
                             <div className="ml-3">
                               <h3 className="text-sm font-medium text-green-800">
-                                Domain Available
+                                Domain Available - Price Under $2!
                               </h3>
                               <div className="mt-2 text-sm text-green-700">
-                                <p>{form.getFieldValue('domain')} is available for ${price}</p>
+                                <p>{form.getFieldValue('domain')} is available for ${price} - You can register this domain!</p>
                               </div>
                             </div>
                           </div>
                         </div>
+                      ) : (
+                        <div className="rounded-md bg-yellow-50 p-4">
+                          <div className="flex">
+                            <div className="flex-shrink-0">
+                              <WarningOutlined className="h-5 w-5 text-yellow-400" />
+                            </div>
+                            <div className="ml-3">
+                              <h3 className="text-sm font-medium text-yellow-800">
+                                Domain Available - Price Too High
+                              </h3>
+                              <div className="mt-2 text-sm text-yellow-700">
+                                <p>{form.getFieldValue('domain')} costs ${price} - Only domains under $2 can be registered.</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
                       ) : (
                         <div className="rounded-md bg-red-50 p-4">
                           <div className="flex">
@@ -1132,7 +1058,6 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       )}
-                    </div>
                   </div>
                 )}
               </div>
@@ -1175,46 +1100,7 @@ export default function DashboardPage() {
           ) : (
             <List
               dataSource={domains}
-              renderItem={item => (
-                <List.Item className="p-4 border border-gray-100 rounded-xl mb-3 bg-white/90 hover:shadow-lg transition-shadow">
-                  <div className="flex flex-col w-full">
-                    <div className="flex items-center w-full">
-                      <Avatar size={48} className="bg-gradient-to-tr from-blue-400 via-purple-400 to-pink-400 text-white font-bold flex-shrink-0">
-                        {item.domain.charAt(0).toUpperCase()}
-                      </Avatar>
-                      <div className="ml-4 flex-grow">
-                        <Text strong className="text-lg text-gray-800 block font-semibold">{item.domain}</Text>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Tag color="success" className="rounded-full px-3 border-0 bg-green-100 text-green-700">
-                            registered
-                          </Tag>
-                          <Tag color="default" className="rounded-full px-3 border-0 bg-gray-100 text-gray-700">
-                            {/* Display registration date + 1 year for expiration */}
-                            {item.created_at && new Date(new Date(item.created_at).setFullYear(new Date(item.created_at).getFullYear() + 1)).toLocaleDateString()}
-                          </Tag>
-                        </div>
-                    </div>
-                      {/* Always show the Auto-Sedo-List button for registered domains */}
-                      <Button
-                        type="primary"
-                        className="bg-gradient-to-r from-blue-500 to-pink-500 border-0 shadow-md hover:from-blue-600 hover:to-pink-600 ml-auto"
-                        onClick={() => handleAutoListOnSedo(item.domain, item.id)}
-                        icon={<CloudUploadOutlined />}
-                        loading={autoListingInProgress && selectedDomain === item.domain}
-                        size="large"
-                        style={{ fontWeight: 600, padding: '0 18px', height: '40px' }}
-                      >
-                        Auto-Sedo Listing
-                      </Button>
-                    </div>
-                    {item.nameservers && (
-                      <div className="mt-1 text-sm text-gray-500">
-                        Nameservers: {item.nameservers}
-                      </div>
-                    )}
-                  </div>
-                </List.Item>
-              )}
+              renderItem={renderDomainItem}
               className="w-full"
             />
           )}
