@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Set custom nameservers for Sedo parking
-  const nameservers = 'ns1.sedoparking.com,ns2.sedoparking.com'
+  const nameservers = 'ns1.sedopark.net,ns2.sedopark.net'
   console.log(`Setting nameservers for domain ${domain} to: ${nameservers}`)
 
   // Use fixed company details for all registrations
@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
         status: 'registered', 
         message: 'Domain registered successfully!',
         domain: domain,
-        nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
+        nameservers: 'ns1.sedopark.net, ns2.sedopark.net'
       } as RegistrationResponse)
     } else if (xml.includes('Status="OK"')) {
       // Sometimes Namecheap returns OK but without explicit confirmation
@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
         status: 'registered', 
         message: 'Domain registration submitted successfully!',
         domain: domain,
-        nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
+        nameservers: 'ns1.sedopark.net, ns2.sedopark.net'
       } as RegistrationResponse)
     } else if (xml.includes('error') || xml.includes('Error')) {
       // Generic error case if patterns above didn't match

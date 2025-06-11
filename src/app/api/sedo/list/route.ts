@@ -41,7 +41,7 @@ export async function POST(request: Request) {
         .from('domains')
         .update({ 
           sedo_listed: true,
-          nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com' 
+          nameservers: 'ns1.sedopark.net, ns2.sedopark.net' 
         })
         .eq('domain', normalizedDomain);
         
@@ -53,12 +53,12 @@ export async function POST(request: Request) {
         } as ListingResponse, { status: 500 });
       }
       
-      console.log(`Simulation successful for ${normalizedDomain}. Nameservers set to ns1.sedoparking.com, ns2.sedoparking.com`);
+      console.log(`Simulation successful for ${normalizedDomain}. Nameservers set to ns1.sedopark.net, ns2.sedopark.net`);
       
       return NextResponse.json({ 
         success: true,
         message: `Domain "${normalizedDomain}" successfully listed on Sedo! (simulated)`,
-        nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com',
+        nameservers: 'ns1.sedopark.net, ns2.sedopark.net',
         domain: normalizedDomain
       } as ListingResponse);
     }
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
         .from('domains')
         .update({ 
           sedo_listed: true,
-          nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com'
+          nameservers: 'ns1.sedopark.net, ns2.sedopark.net'
         })
         .eq('domain', normalizedDomain);
         
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         success: true,
         message: `Domain "${normalizedDomain}" successfully listed on Sedo!`,
-        nameservers: 'ns1.sedoparking.com, ns2.sedoparking.com',
+        nameservers: 'ns1.sedopark.net, ns2.sedopark.net',
         domain: normalizedDomain
       } as ListingResponse);
     } else {

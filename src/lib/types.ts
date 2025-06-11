@@ -8,7 +8,7 @@ export type Domain = {
   status: string
   sedo_listed: boolean
   created_at: string
-  nameservers?: string // Contains nameserver information, typically 'ns1.sedoparking.com, ns2.sedoparking.com' for Sedo
+  nameservers?: string // Contains nameserver information, typically 'ns1.sedopark.net, ns2.sedopark.net' for Sedo
   registration_date?: string
   expiry_date?: string
 }
